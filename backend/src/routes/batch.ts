@@ -5,68 +5,83 @@ const router = Router();
 
 // Create a new batch
 router.post("/", async (req: Request, res: Response) => {
-  const { startSerial, endSerial, batchCode, skuId, productionDate, roleNumber } = req.body;
+  const { ranges, batchCode, skuId, productionDate, roleNumber } = req.body;
 
-  if (!startSerial || !endSerial || !batchCode || !skuId || !productionDate) {
-    res.status(400).json({ error: "All fields are required" });
+  if (!batchCode || !skuId || !productionDate) {
+    res.status(400).json({ error: "Batch code, SKU ID, and production date are required" });
     return;
   }
 
-  // Parse serial numbers: single letter (A-Z) + digits
-  const startMatch = startSerial.match(/^([A-Za-z])(\d+)$/);
-  const endMatch = endSerial.match(/^([A-Za-z])(\d+)$/);
-
-  if (!startMatch || !endMatch) {
-    res.status(400).json({ error: "Invalid serial number format. Use 1 letter (A-Z) + digits (e.g., A1, A100000)" });
+  if (!ranges || !Array.isArray(ranges) || ranges.length === 0) {
+    res.status(400).json({ error: "At least one serial number range is required" });
     return;
   }
 
-  const prefix = startMatch[1].toUpperCase();
-  const endPrefix = endMatch[1].toUpperCase();
+  const parsedRanges: { prefix: string; startNum: number; endNum: number; width: number; quantity: number }[] = [];
 
-  if (prefix !== endPrefix) {
-    res.status(400).json({ error: "Start and end serial numbers must have the same prefix" });
-    return;
+  for (const range of ranges) {
+    const startMatch = range.startSerial?.match(/^([A-Za-z])(\d+)$/);
+    const endMatch = range.endSerial?.match(/^([A-Za-z])(\d+)$/);
+
+    if (!startMatch || !endMatch) {
+      res.status(400).json({ error: `Invalid serial format: ${range.startSerial} - ${range.endSerial}` });
+      return;
+    }
+
+    const prefix = startMatch[1].toUpperCase();
+    const endPrefix = endMatch[1].toUpperCase();
+
+    if (prefix !== endPrefix) {
+      res.status(400).json({ error: `Prefix mismatch: ${range.startSerial} vs ${range.endSerial}` });
+      return;
+    }
+
+    const startNum = parseInt(startMatch[2], 10);
+    const endNum = parseInt(endMatch[2], 10);
+
+    if (endNum <= startNum) {
+      res.status(400).json({ error: `End must be greater than start: ${range.startSerial} - ${range.endSerial}` });
+      return;
+    }
+
+    const width = Math.max(startMatch[2].length, endMatch[2].length);
+    parsedRanges.push({ prefix, startNum, endNum, width, quantity: endNum - startNum });
   }
 
-  const startNum = parseInt(startMatch[2], 10);
-  const endNum = parseInt(endMatch[2], 10);
+  const totalQuantity = parsedRanges.reduce((sum, r) => sum + r.quantity, 0);
 
-  if (endNum <= startNum) {
-    res.status(400).json({ error: "End serial number must be greater than start serial number" });
-    return;
+  for (const r of parsedRanges) {
+    const firstSerial = `${r.prefix}${String(r.startNum + 1).padStart(r.width, "0")}`;
+    const lastSerial = `${r.prefix}${String(r.endNum).padStart(r.width, "0")}`;
+    const existing = await db.queryOne(
+      "SELECT COUNT(*) as count FROM serial_numbers WHERE serial_number BETWEEN ? AND ?",
+      [firstSerial, lastSerial]
+    );
+    if (existing && existing.count > 0) {
+      res.status(400).json({ error: `Serial numbers in range ${firstSerial}-${lastSerial} already exist` });
+      return;
+    }
   }
 
-  const quantity = endNum - startNum;
-  const numWidth = Math.max(startMatch[2].length, endMatch[2].length);
-
-  // Check for overlapping serial numbers
-  const firstSerial = `${prefix}${String(startNum + 1).padStart(numWidth, "0")}`;
-  const lastSerial = `${prefix}${String(endNum).padStart(numWidth, "0")}`;
-  const existing = await db.queryOne(
-    "SELECT COUNT(*) as count FROM serial_numbers WHERE serial_number BETWEEN ? AND ?",
-    [firstSerial, lastSerial]
-  );
-
-  if (existing && existing.count > 0) {
-    res.status(400).json({ error: "Some serial numbers in this range already exist in the database" });
-    return;
-  }
+  const firstRange = parsedRanges[0];
+  const lastRange = parsedRanges[parsedRanges.length - 1];
 
   try {
     const batchId = await db.transaction(async (tx) => {
       const result = await tx.execute(
         "INSERT INTO batches (batch_code, sku_id, prefix, start_number, end_number, quantity, production_date, role_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [batchCode, skuId, prefix, startNum, endNum, quantity, productionDate, roleNumber || null]
+        [batchCode, skuId, firstRange.prefix, firstRange.startNum, lastRange.endNum, totalQuantity, productionDate, roleNumber || null]
       );
       const id = result.lastId;
 
-      for (let i = startNum + 1; i <= endNum; i++) {
-        const serialNumber = `${prefix}${String(i).padStart(numWidth, "0")}`;
-        await tx.execute(
-          "INSERT INTO serial_numbers (batch_id, serial_number, batch_code, sku_id) VALUES (?, ?, ?, ?)",
-          [id, serialNumber, batchCode, skuId]
-        );
+      for (const r of parsedRanges) {
+        for (let i = r.startNum + 1; i <= r.endNum; i++) {
+          const serialNumber = `${r.prefix}${String(i).padStart(r.width, "0")}`;
+          await tx.execute(
+            "INSERT INTO serial_numbers (batch_id, serial_number, batch_code, sku_id) VALUES (?, ?, ?, ?)",
+            [id, serialNumber, batchCode, skuId]
+          );
+        }
       }
 
       return id;

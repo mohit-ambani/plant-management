@@ -39,8 +39,7 @@ export interface PaginatedSerials {
 }
 
 export const createBatch = (data: {
-  startSerial: string;
-  endSerial: string;
+  ranges: { startSerial: string; endSerial: string }[];
   batchCode: string;
   skuId: string;
   productionDate: string;

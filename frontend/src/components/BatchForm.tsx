@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import {
   Form,
   Input,
@@ -13,21 +13,30 @@ import {
   Space,
   Divider,
   Typography,
+  Tag,
 } from "antd";
 import {
   PlusOutlined,
   NumberOutlined,
   BarcodeOutlined,
-  CalendarOutlined,
   TagOutlined,
+  MinusCircleOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { createBatch } from "../services/api";
 
 const { Text } = Typography;
 
-interface BatchFormProps {
-  onSuccess: () => void;
+interface RangeInfo {
+  startSerial: string;
+  endSerial: string;
+  prefix: string;
+  startNum: number;
+  endNum: number;
+  width: number;
+  quantity: number;
+  preview: string[];
+  error: string | null;
 }
 
 function parseSerial(serial: string): { prefix: string; number: number; width: number } | null {
@@ -36,87 +45,120 @@ function parseSerial(serial: string): { prefix: string; number: number; width: n
   return { prefix: match[1].toUpperCase(), number: parseInt(match[2], 10), width: match[2].length };
 }
 
-export default function BatchForm({ onSuccess }: BatchFormProps) {
+function computeRange(startSerial: string, endSerial: string): RangeInfo | null {
+  if (!startSerial && !endSerial) return null;
+
+  const result: RangeInfo = {
+    startSerial,
+    endSerial,
+    prefix: "",
+    startNum: 0,
+    endNum: 0,
+    width: 0,
+    quantity: 0,
+    preview: [],
+    error: null,
+  };
+
+  if (!startSerial || !endSerial) {
+    result.error = "Both start and end serial are required";
+    return result;
+  }
+
+  const start = parseSerial(startSerial);
+  const end = parseSerial(endSerial);
+
+  if (!start || !end) {
+    result.error = "Invalid format. Use letter + digits (e.g., A100)";
+    return result;
+  }
+
+  if (start.prefix !== end.prefix) {
+    result.error = "Prefix mismatch";
+    return result;
+  }
+
+  if (end.number <= start.number) {
+    result.error = "End must be greater than start";
+    return result;
+  }
+
+  const qty = end.number - start.number;
+  const width = Math.max(start.width, end.width);
+  const prefix = start.prefix;
+
+  const preview: string[] = [];
+  if (qty <= 5) {
+    for (let i = start.number + 1; i <= end.number; i++) {
+      preview.push(`${prefix}${String(i).padStart(width, "0")}`);
+    }
+  } else {
+    preview.push(`${prefix}${String(start.number + 1).padStart(width, "0")}`);
+    preview.push(`${prefix}${String(start.number + 2).padStart(width, "0")}`);
+    preview.push("...");
+    preview.push(`${prefix}${String(end.number).padStart(width, "0")}`);
+  }
+
+  return {
+    ...result,
+    prefix,
+    startNum: start.number,
+    endNum: end.number,
+    width,
+    quantity: qty,
+    preview,
+    error: null,
+  };
+}
+
+export default function BatchForm() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
-  const [quantity, setQuantity] = useState<number | null>(null);
-  const [serialPreview, setSerialPreview] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [rangeInfos, setRangeInfos] = useState<(RangeInfo | null)[]>([null]);
 
-  const calculateQuantity = useCallback(() => {
-    const startSerial = form.getFieldValue("startSerial") || "";
-    const endSerial = form.getFieldValue("endSerial") || "";
-
-    if (!startSerial || !endSerial) {
-      setQuantity(null);
-      setSerialPreview([]);
-      setError(null);
-      return;
-    }
-
-    const start = parseSerial(startSerial);
-    const end = parseSerial(endSerial);
-
-    if (!start || !end) {
-      setQuantity(null);
-      setSerialPreview([]);
-      setError("Invalid serial format. Use 1 letter (A-Z) + digits (e.g., A1, A100000)");
-      return;
-    }
-
-    if (start.prefix !== end.prefix) {
-      setQuantity(null);
-      setSerialPreview([]);
-      setError("Prefix mismatch between start and end serials");
-      return;
-    }
-
-    if (end.number <= start.number) {
-      setQuantity(null);
-      setSerialPreview([]);
-      setError("End serial must be greater than start serial");
-      return;
-    }
-
-    const qty = end.number - start.number;
-    setQuantity(qty);
-    setError(null);
-
-    // Generate preview (first 3 and last 2)
-    const width = start.width;
-    const prefix = start.prefix;
-    const preview: string[] = [];
-    if (qty <= 5) {
-      for (let i = start.number + 1; i <= end.number; i++) {
-        preview.push(`${prefix}${String(i).padStart(width, "0")}`);
-      }
-    } else {
-      preview.push(`${prefix}${String(start.number + 1).padStart(width, "0")}`);
-      preview.push(`${prefix}${String(start.number + 2).padStart(width, "0")}`);
-      preview.push(`${prefix}${String(start.number + 3).padStart(width, "0")}`);
-      preview.push("...");
-      preview.push(`${prefix}${String(end.number - 1).padStart(width, "0")}`);
-      preview.push(`${prefix}${String(end.number).padStart(width, "0")}`);
-    }
-    setSerialPreview(preview);
+  const recalculate = useCallback(() => {
+    setTimeout(() => {
+      const ranges = form.getFieldValue("ranges") || [];
+      const infos = ranges.map((r: any) =>
+        r ? computeRange(r.startSerial || "", r.endSerial || "") : null
+      );
+      setRangeInfos(infos);
+    }, 0);
   }, [form]);
 
+  const totalQuantity = rangeInfos.reduce(
+    (sum, r) => sum + (r && !r.error ? r.quantity : 0),
+    0
+  );
+
+  const hasErrors = rangeInfos.some((r) => r?.error);
+  const hasValidRange = rangeInfos.some((r) => r && !r.error && r.quantity > 0);
+
   const handleSubmit = async (values: any) => {
+    const ranges = (values.ranges || [])
+      .filter((r: any) => r?.startSerial && r?.endSerial)
+      .map((r: any) => ({
+        startSerial: r.startSerial,
+        endSerial: r.endSerial,
+      }));
+
+    if (ranges.length === 0) {
+      message.error("Add at least one serial number range");
+      return;
+    }
+
     setLoading(true);
     try {
       await createBatch({
-        startSerial: values.startSerial,
-        endSerial: values.endSerial,
+        ranges,
         batchCode: values.batchCode,
         skuId: values.skuId,
         productionDate: values.productionDate.format("YYYY-MM-DD"),
         roleNumber: values.roleNumber || undefined,
       });
-      message.success(`Batch created successfully with ${quantity} serial numbers`);
+      message.success(`Batch created successfully with ${totalQuantity} serial numbers`);
       form.resetFields();
-      setQuantity(null);
-      setSerialPreview([]);
-      onSuccess();
+      setRangeInfos([null]);
     } catch (err: any) {
       message.error(err.response?.data?.error || "Failed to create batch");
     } finally {
@@ -132,57 +174,18 @@ export default function BatchForm({ onSuccess }: BatchFormProps) {
           <span>New Batch Entry</span>
         </Space>
       }
-      style={{ marginBottom: 24 }}
     >
       <Form
         form={form}
         layout="vertical"
         onFinish={handleSubmit}
         size="large"
-        initialValues={{ productionDate: dayjs(), skuId: "Sku2" }}
+        initialValues={{
+          productionDate: dayjs(),
+          skuId: "Sku2",
+          ranges: [{ startSerial: "", endSerial: "" }],
+        }}
       >
-        <Row gutter={16}>
-          <Col xs={24} sm={12}>
-            <Form.Item
-              name="startSerial"
-              label="Starting Serial Number"
-              rules={[
-                { required: true, message: "Enter starting serial" },
-                {
-                  pattern: /^[A-Za-z]\d+$/,
-                  message: "Format: 1 letter (A-Z) + digits (e.g., A1, A100000)",
-                },
-              ]}
-            >
-              <Input
-                prefix={<BarcodeOutlined />}
-                placeholder="e.g., A100000"
-                onChange={() => setTimeout(calculateQuantity, 0)}
-                autoFocus
-              />
-            </Form.Item>
-          </Col>
-          <Col xs={24} sm={12}>
-            <Form.Item
-              name="endSerial"
-              label="Ending Serial Number"
-              rules={[
-                { required: true, message: "Enter ending serial" },
-                {
-                  pattern: /^[A-Za-z]\d+$/,
-                  message: "Format: 1 letter (A-Z) + digits (e.g., A10000)",
-                },
-              ]}
-            >
-              <Input
-                prefix={<BarcodeOutlined />}
-                placeholder="e.g., A10000"
-                onChange={() => setTimeout(calculateQuantity, 0)}
-              />
-            </Form.Item>
-          </Col>
-        </Row>
-
         <Row gutter={16}>
           <Col xs={24} sm={6}>
             <Form.Item
@@ -203,10 +206,7 @@ export default function BatchForm({ onSuccess }: BatchFormProps) {
             </Form.Item>
           </Col>
           <Col xs={24} sm={6}>
-            <Form.Item
-              name="roleNumber"
-              label="Role Number"
-            >
+            <Form.Item name="roleNumber" label="Role Number">
               <Input prefix={<NumberOutlined />} placeholder="Optional" />
             </Form.Item>
           </Col>
@@ -221,48 +221,137 @@ export default function BatchForm({ onSuccess }: BatchFormProps) {
           </Col>
         </Row>
 
-        {error && (
-          <Alert message={error} type="error" showIcon style={{ marginBottom: 16 }} />
-        )}
+        <Divider orientation="left" plain style={{ margin: "4px 0 16px" }}>
+          Serial Number Ranges
+        </Divider>
 
-        {quantity !== null && !error && (
-          <>
-            <Divider style={{ margin: "8px 0 16px" }} />
-            <Row gutter={16} style={{ marginBottom: 16 }}>
-              <Col xs={12} sm={6}>
-                <Statistic
-                  title="Quantity"
-                  value={quantity}
-                  valueStyle={{ color: "#1677ff", fontSize: 28, fontWeight: 700 }}
-                  suffix="units"
-                />
-              </Col>
-              <Col xs={24} sm={18}>
-                <div>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    Serial Numbers Preview
-                  </Text>
-                  <div style={{ marginTop: 4 }}>
-                    {serialPreview.map((s, i) => (
-                      <Text
-                        key={i}
-                        code={s !== "..."}
+        <Form.List name="ranges">
+          {(fields, { add, remove }) => (
+            <>
+              {fields.map(({ key, name, ...restField }, index) => {
+                const info = rangeInfos[index];
+                return (
+                  <div key={key} style={{ marginBottom: 12 }}>
+                    <Row gutter={12} align="middle">
+                      <Col xs={24} sm={7}>
+                        <Form.Item
+                          {...restField}
+                          name={[name, "startSerial"]}
+                          rules={[
+                            { required: true, message: "Start serial" },
+                            {
+                              pattern: /^[A-Za-z]\d+$/,
+                              message: "e.g., A100",
+                            },
+                          ]}
+                          style={{ marginBottom: 0 }}
+                        >
+                          <Input
+                            prefix={<BarcodeOutlined />}
+                            placeholder="Start (e.g., A1)"
+                            onChange={recalculate}
+                          />
+                        </Form.Item>
+                      </Col>
+                      <Col
                         style={{
-                          marginRight: 8,
-                          fontSize: s === "..." ? 14 : 13,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: "0 4px",
                         }}
                       >
-                        {s}
-                      </Text>
-                    ))}
+                        <Text type="secondary">to</Text>
+                      </Col>
+                      <Col xs={24} sm={7}>
+                        <Form.Item
+                          {...restField}
+                          name={[name, "endSerial"]}
+                          rules={[
+                            { required: true, message: "End serial" },
+                            {
+                              pattern: /^[A-Za-z]\d+$/,
+                              message: "e.g., A100",
+                            },
+                          ]}
+                          style={{ marginBottom: 0 }}
+                        >
+                          <Input
+                            prefix={<BarcodeOutlined />}
+                            placeholder="End (e.g., A1000)"
+                            onChange={recalculate}
+                          />
+                        </Form.Item>
+                      </Col>
+                      <Col flex="auto" style={{ minWidth: 0 }}>
+                        {info && !info.error && info.quantity > 0 && (
+                          <Space size={4} wrap>
+                            <Tag color="blue">{info.quantity.toLocaleString()} units</Tag>
+                            {info.preview.map((s, i) => (
+                              <Text
+                                key={i}
+                                code={s !== "..."}
+                                style={{ fontSize: 12 }}
+                              >
+                                {s}
+                              </Text>
+                            ))}
+                          </Space>
+                        )}
+                        {info?.error && (
+                          <Text type="danger" style={{ fontSize: 12 }}>
+                            {info.error}
+                          </Text>
+                        )}
+                      </Col>
+                      <Col>
+                        {fields.length > 1 && (
+                          <Button
+                            type="text"
+                            danger
+                            icon={<MinusCircleOutlined />}
+                            onClick={() => {
+                              remove(name);
+                              setTimeout(recalculate, 0);
+                            }}
+                          />
+                        )}
+                      </Col>
+                    </Row>
                   </div>
-                </div>
-              </Col>
-            </Row>
-          </>
+                );
+              })}
+              <Form.Item style={{ marginBottom: 16 }}>
+                <Button
+                  type="dashed"
+                  onClick={() => {
+                    add({ startSerial: "", endSerial: "" });
+                    setRangeInfos((prev) => [...prev, null]);
+                  }}
+                  block
+                  icon={<PlusOutlined />}
+                >
+                  Add Another Range
+                </Button>
+              </Form.Item>
+            </>
+          )}
+        </Form.List>
+
+        {hasValidRange && !hasErrors && (
+          <Row style={{ marginBottom: 16 }}>
+            <Col>
+              <Statistic
+                title="Total Quantity (all ranges)"
+                value={totalQuantity}
+                valueStyle={{ color: "#1677ff", fontSize: 28, fontWeight: 700 }}
+                suffix="units"
+              />
+            </Col>
+          </Row>
         )}
 
-        <Form.Item style={{ marginBottom: 0, marginTop: 8 }}>
+        <Form.Item style={{ marginBottom: 0 }}>
           <Button
             type="primary"
             htmlType="submit"
@@ -270,9 +359,9 @@ export default function BatchForm({ onSuccess }: BatchFormProps) {
             icon={<PlusOutlined />}
             size="large"
             block
-            disabled={quantity === null || !!error}
+            disabled={!hasValidRange || hasErrors}
           >
-            Create Batch ({quantity ?? 0} Serial Numbers)
+            Create Batch ({totalQuantity.toLocaleString()} Serial Numbers)
           </Button>
         </Form.Item>
       </Form>

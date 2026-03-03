@@ -122,47 +122,63 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 async function createBatch(req: VercelRequest, res: VercelResponse) {
-  const { startSerial, endSerial, batchCode, skuId, productionDate, roleNumber } = req.body;
+  const { ranges, batchCode, skuId, productionDate, roleNumber } = req.body;
 
-  if (!startSerial || !endSerial || !batchCode || !skuId || !productionDate) {
-    return res.status(400).json({ error: "All fields are required" });
+  if (!batchCode || !skuId || !productionDate) {
+    return res.status(400).json({ error: "Batch code, SKU ID, and production date are required" });
   }
 
-  const startMatch = startSerial.match(/^([A-Za-z])(\d+)$/);
-  const endMatch = endSerial.match(/^([A-Za-z])(\d+)$/);
-
-  if (!startMatch || !endMatch) {
-    return res.status(400).json({ error: "Invalid serial number format. Use 1 letter (A-Z) + digits (e.g., A1, A100000)" });
+  if (!ranges || !Array.isArray(ranges) || ranges.length === 0) {
+    return res.status(400).json({ error: "At least one serial number range is required" });
   }
 
-  const prefix = startMatch[1].toUpperCase();
-  const endPrefix = endMatch[1].toUpperCase();
+  // Validate and parse all ranges
+  const parsedRanges: { prefix: string; startNum: number; endNum: number; width: number; quantity: number }[] = [];
 
-  if (prefix !== endPrefix) {
-    return res.status(400).json({ error: "Start and end serial numbers must have the same prefix" });
+  for (const range of ranges) {
+    const startMatch = range.startSerial?.match(/^([A-Za-z])(\d+)$/);
+    const endMatch = range.endSerial?.match(/^([A-Za-z])(\d+)$/);
+
+    if (!startMatch || !endMatch) {
+      return res.status(400).json({ error: `Invalid serial format: ${range.startSerial} - ${range.endSerial}` });
+    }
+
+    const prefix = startMatch[1].toUpperCase();
+    const endPrefix = endMatch[1].toUpperCase();
+
+    if (prefix !== endPrefix) {
+      return res.status(400).json({ error: `Prefix mismatch: ${range.startSerial} vs ${range.endSerial}` });
+    }
+
+    const startNum = parseInt(startMatch[2], 10);
+    const endNum = parseInt(endMatch[2], 10);
+
+    if (endNum <= startNum) {
+      return res.status(400).json({ error: `End must be greater than start: ${range.startSerial} - ${range.endSerial}` });
+    }
+
+    const width = Math.max(startMatch[2].length, endMatch[2].length);
+    parsedRanges.push({ prefix, startNum, endNum, width, quantity: endNum - startNum });
   }
 
-  const startNum = parseInt(startMatch[2], 10);
-  const endNum = parseInt(endMatch[2], 10);
+  const totalQuantity = parsedRanges.reduce((sum, r) => sum + r.quantity, 0);
 
-  if (endNum <= startNum) {
-    return res.status(400).json({ error: "End serial number must be greater than start serial number" });
+  // Check for overlapping serial numbers in all ranges
+  for (const r of parsedRanges) {
+    const firstSerial = `${r.prefix}${String(r.startNum + 1).padStart(r.width, "0")}`;
+    const lastSerial = `${r.prefix}${String(r.endNum).padStart(r.width, "0")}`;
+    const existing = await pool.query(
+      pg("SELECT COUNT(*) as count FROM serial_numbers WHERE serial_number BETWEEN ? AND ?"),
+      [firstSerial, lastSerial]
+    );
+    if (parseInt(existing.rows[0].count) > 0) {
+      return res.status(400).json({ error: `Serial numbers in range ${firstSerial}-${lastSerial} already exist` });
+    }
   }
 
-  const quantity = endNum - startNum;
-  const numWidth = Math.max(startMatch[2].length, endMatch[2].length);
-
-  const firstSerial = `${prefix}${String(startNum + 1).padStart(numWidth, "0")}`;
-  const lastSerial = `${prefix}${String(endNum).padStart(numWidth, "0")}`;
-
-  const existing = await pool.query(
-    pg("SELECT COUNT(*) as count FROM serial_numbers WHERE serial_number BETWEEN ? AND ?"),
-    [firstSerial, lastSerial]
-  );
-
-  if (parseInt(existing.rows[0].count) > 0) {
-    return res.status(400).json({ error: "Some serial numbers in this range already exist in the database" });
-  }
+  // Use first range's prefix/start/end for the batch record summary
+  const firstRange = parsedRanges[0];
+  const lastRange = parsedRanges[parsedRanges.length - 1];
 
   const client = await pool.connect();
   try {
@@ -170,16 +186,18 @@ async function createBatch(req: VercelRequest, res: VercelResponse) {
 
     const batchResult = await client.query(
       pg("INSERT INTO batches (batch_code, sku_id, prefix, start_number, end_number, quantity, production_date, role_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"),
-      [batchCode, skuId, prefix, startNum, endNum, quantity, productionDate, roleNumber || null]
+      [batchCode, skuId, firstRange.prefix, firstRange.startNum, lastRange.endNum, totalQuantity, productionDate, roleNumber || null]
     );
     const batchId = batchResult.rows[0].id;
 
-    for (let i = startNum + 1; i <= endNum; i++) {
-      const serialNumber = `${prefix}${String(i).padStart(numWidth, "0")}`;
-      await client.query(
-        pg("INSERT INTO serial_numbers (batch_id, serial_number, batch_code, sku_id) VALUES (?, ?, ?, ?)"),
-        [batchId, serialNumber, batchCode, skuId]
-      );
+    for (const r of parsedRanges) {
+      for (let i = r.startNum + 1; i <= r.endNum; i++) {
+        const serialNumber = `${r.prefix}${String(i).padStart(r.width, "0")}`;
+        await client.query(
+          pg("INSERT INTO serial_numbers (batch_id, serial_number, batch_code, sku_id) VALUES (?, ?, ?, ?)"),
+          [batchId, serialNumber, batchCode, skuId]
+        );
+      }
     }
 
     await client.query("COMMIT");
