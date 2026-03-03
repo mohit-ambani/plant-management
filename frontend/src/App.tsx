@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { Layout, Typography, theme, Spin } from "antd";
+import { Layout, Typography, theme } from "antd";
 import BatchForm from "./components/BatchForm";
 import BatchList from "./components/BatchList";
 import BatchDetail from "./components/BatchDetail";
+import GlobalSearch from "./components/GlobalSearch";
 import { Batch, getBatches } from "./services/api";
 
 const { Header, Content } = Layout;
@@ -14,7 +15,7 @@ export default function App() {
   const [selectedBatch, setSelectedBatch] = useState<Batch | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const {
-    token: { colorBgContainer, borderRadiusLG },
+    token: { colorBgContainer },
   } = theme.useToken();
 
   const fetchBatches = useCallback(async () => {
@@ -56,6 +57,7 @@ export default function App() {
 
       <Content style={{ padding: "24px", maxWidth: 1200, margin: "0 auto", width: "100%" }}>
         <BatchForm onSuccess={fetchBatches} />
+        <GlobalSearch />
         <BatchList
           batches={batches}
           loading={loading}

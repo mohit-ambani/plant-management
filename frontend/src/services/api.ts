@@ -73,3 +73,25 @@ export const activateBatch = (id: number) =>
 
 export const deleteBatch = (id: number) =>
   api.delete<{ message: string }>(`/batches/${id}`);
+
+export interface SearchResult {
+  type: "batch" | "serial";
+  serial_number?: string;
+  batch_code: string;
+  sku_id: string;
+  role_number: string | null;
+  production_date: string;
+  quantity: number;
+  prefix: string;
+  start_number: number;
+  end_number: number;
+  batch_id: number;
+  batch_status: string;
+  serial_status?: string;
+  serial_created_at?: string;
+  serial_activated_at?: string | null;
+  batch_created_at: string;
+}
+
+export const search = (query: string) =>
+  api.get<SearchResult[]>(`/batches/search?q=${encodeURIComponent(query)}`);

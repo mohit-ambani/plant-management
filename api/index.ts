@@ -85,6 +85,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return await listBatches(req, res);
     }
 
+    // GET /api/batches/search
+    if (path === "/batches/search" && method === "GET") {
+      return await searchBatchesAndSerials(req, res);
+    }
+
     // GET /api/batches/:id/serials
     const serialsMatch = path.match(/^\/batches\/(\d+)\/serials$/);
     if (serialsMatch && method === "GET") {
@@ -310,6 +315,84 @@ async function activateBatch(_req: VercelRequest, res: VercelResponse, id: numbe
     errors: errors.length,
     errorDetails: errors,
   });
+}
+
+async function searchBatchesAndSerials(req: VercelRequest, res: VercelResponse) {
+  const query = getQuery(req.url || "");
+  const q = (query.get("q") || "").trim();
+
+  if (!q) {
+    return res.json([]);
+  }
+
+  const pattern = `%${q}%`;
+
+  // Search batches by batch_code or role_number
+  const batchResults = await pool.query(
+    `SELECT *, id as batch_id, status as batch_status, created_at as batch_created_at
+     FROM batches
+     WHERE batch_code ILIKE $1 OR role_number ILIKE $1 OR sku_id ILIKE $1
+     ORDER BY created_at DESC
+     LIMIT 50`,
+    [pattern]
+  );
+
+  // Search serial numbers
+  const serialResults = await pool.query(
+    `SELECT s.serial_number, s.status as serial_status, s.created_at as serial_created_at,
+            s.activated_at as serial_activated_at,
+            b.batch_code, b.sku_id, b.role_number, b.production_date, b.quantity,
+            b.prefix, b.start_number, b.end_number, b.id as batch_id,
+            b.status as batch_status, b.created_at as batch_created_at
+     FROM serial_numbers s
+     JOIN batches b ON s.batch_id = b.id
+     WHERE s.serial_number ILIKE $1
+     ORDER BY s.serial_number
+     LIMIT 50`,
+    [pattern]
+  );
+
+  const results: any[] = [];
+
+  for (const row of batchResults.rows) {
+    results.push({
+      type: "batch",
+      batch_code: row.batch_code,
+      sku_id: row.sku_id,
+      role_number: row.role_number,
+      production_date: row.production_date,
+      quantity: row.quantity,
+      prefix: row.prefix,
+      start_number: row.start_number,
+      end_number: row.end_number,
+      batch_id: row.batch_id,
+      batch_status: row.batch_status,
+      batch_created_at: row.batch_created_at,
+    });
+  }
+
+  for (const row of serialResults.rows) {
+    results.push({
+      type: "serial",
+      serial_number: row.serial_number,
+      batch_code: row.batch_code,
+      sku_id: row.sku_id,
+      role_number: row.role_number,
+      production_date: row.production_date,
+      quantity: row.quantity,
+      prefix: row.prefix,
+      start_number: row.start_number,
+      end_number: row.end_number,
+      batch_id: row.batch_id,
+      batch_status: row.batch_status,
+      serial_status: row.serial_status,
+      serial_created_at: row.serial_created_at,
+      serial_activated_at: row.serial_activated_at,
+      batch_created_at: row.batch_created_at,
+    });
+  }
+
+  return res.json(results);
 }
 
 async function deleteBatch(_req: VercelRequest, res: VercelResponse, id: number) {

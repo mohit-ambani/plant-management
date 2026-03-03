@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Table,
   Card,
@@ -9,17 +9,25 @@ import {
   message,
   Progress,
   Typography,
+  Input,
+  DatePicker,
+  Row,
+  Col,
 } from "antd";
 import {
   DeleteOutlined,
   ThunderboltOutlined,
   EyeOutlined,
   UnorderedListOutlined,
+  SearchOutlined,
+  ClearOutlined,
 } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
+import dayjs from "dayjs";
 import { Batch, activateBatch, deleteBatch } from "../services/api";
 
 const { Text } = Typography;
+const { RangePicker } = DatePicker;
 
 interface BatchListProps {
   batches: Batch[];
@@ -35,6 +43,33 @@ export default function BatchList({
   onViewDetail,
 }: BatchListProps) {
   const [activatingId, setActivatingId] = useState<number | null>(null);
+  const [searchText, setSearchText] = useState("");
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
+
+  const filteredBatches = useMemo(() => {
+    let result = batches;
+
+    if (searchText.trim()) {
+      const q = searchText.trim().toLowerCase();
+      result = result.filter(
+        (b) =>
+          b.batch_code.toLowerCase().includes(q) ||
+          b.sku_id.toLowerCase().includes(q) ||
+          (b.role_number && b.role_number.toLowerCase().includes(q))
+      );
+    }
+
+    if (dateRange && dateRange[0] && dateRange[1]) {
+      const start = dateRange[0].startOf("day");
+      const end = dateRange[1].endOf("day");
+      result = result.filter((b) => {
+        const d = dayjs(b.production_date);
+        return d.isAfter(start.subtract(1, "ms")) && d.isBefore(end.add(1, "ms"));
+      });
+    }
+
+    return result;
+  }, [batches, searchText, dateRange]);
 
   const handleActivate = async (id: number) => {
     setActivatingId(id);
@@ -58,6 +93,13 @@ export default function BatchList({
       message.error(err.response?.data?.error || "Delete failed");
     }
   };
+
+  const clearFilters = () => {
+    setSearchText("");
+    setDateRange(null);
+  };
+
+  const hasFilters = searchText.trim() || (dateRange && dateRange[0]);
 
   const columns: ColumnsType<Batch> = [
     {
@@ -184,18 +226,48 @@ export default function BatchList({
       }
       extra={
         <Text type="secondary">
-          {batches.length} batch{batches.length !== 1 ? "es" : ""}
+          {hasFilters
+            ? `${filteredBatches.length} of ${batches.length} batch${batches.length !== 1 ? "es" : ""}`
+            : `${batches.length} batch${batches.length !== 1 ? "es" : ""}`}
         </Text>
       }
     >
+      <Row gutter={12} style={{ marginBottom: 16 }}>
+        <Col xs={24} sm={10}>
+          <Input
+            placeholder="Search by batch code, SKU, or role number..."
+            prefix={<SearchOutlined />}
+            allowClear
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+          />
+        </Col>
+        <Col xs={24} sm={10}>
+          <RangePicker
+            style={{ width: "100%" }}
+            placeholder={["Production from", "Production to"]}
+            value={dateRange}
+            onChange={(dates) => setDateRange(dates)}
+            format="YYYY-MM-DD"
+          />
+        </Col>
+        <Col xs={24} sm={4}>
+          {hasFilters && (
+            <Button icon={<ClearOutlined />} onClick={clearFilters} block>
+              Clear
+            </Button>
+          )}
+        </Col>
+      </Row>
+
       <Table
         columns={columns}
-        dataSource={batches}
+        dataSource={filteredBatches}
         rowKey="id"
         loading={loading}
         pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (t) => `Total: ${t}` }}
         size="middle"
-        scroll={{ x: 900 }}
+        scroll={{ x: 1000 }}
       />
     </Card>
   );

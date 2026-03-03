@@ -9,8 +9,16 @@ import {
   Select,
   message,
   Typography,
+  Statistic,
+  Row,
+  Col,
+  Divider,
 } from "antd";
-import { ThunderboltOutlined } from "@ant-design/icons";
+import {
+  ThunderboltOutlined,
+  CheckCircleOutlined,
+  ClockCircleOutlined,
+} from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import {
   Batch,
@@ -104,7 +112,16 @@ export default function BatchDetail({
       dataIndex: "status",
       key: "status",
       render: (status) => (
-        <Tag color={status === "activated" ? "green" : "orange"}>
+        <Tag
+          color={status === "activated" ? "green" : "orange"}
+          icon={
+            status === "activated" ? (
+              <CheckCircleOutlined />
+            ) : (
+              <ClockCircleOutlined />
+            )
+          }
+        >
           {status.toUpperCase()}
         </Tag>
       ),
@@ -113,25 +130,28 @@ export default function BatchDetail({
       title: "Created At",
       dataIndex: "created_at",
       key: "created_at",
+      render: (val) => val ? new Date(val).toLocaleString() : "—",
     },
     {
       title: "Activated At",
       dataIndex: "activated_at",
       key: "activated_at",
-      render: (val) => val || "—",
+      render: (val) => val ? new Date(val).toLocaleString() : "—",
     },
   ];
 
   if (!batch) return null;
 
   const width = String(batch.end_number).length;
+  const activatedCount = batch.activated_count || 0;
+  const pendingCount = batch.quantity - activatedCount;
 
   return (
     <Modal
       title={`Batch: ${batch.batch_code}`}
       open={open}
       onCancel={onClose}
-      width={900}
+      width={1000}
       footer={[
         <Button key="close" onClick={onClose}>
           Close
@@ -149,29 +169,76 @@ export default function BatchDetail({
         ),
       ]}
     >
-      <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }} style={{ marginBottom: 16 }}>
-        <Descriptions.Item label="Batch Code">{batch.batch_code}</Descriptions.Item>
+      <Descriptions
+        bordered
+        size="small"
+        column={{ xs: 1, sm: 2, md: 3 }}
+        style={{ marginBottom: 16 }}
+      >
+        <Descriptions.Item label="Batch Code">
+          <Text strong>{batch.batch_code}</Text>
+        </Descriptions.Item>
         <Descriptions.Item label="SKU ID">{batch.sku_id}</Descriptions.Item>
-        <Descriptions.Item label="Serial Range">
-          <Text code>
-            {batch.prefix}{String(batch.start_number + 1).padStart(width, "0")} —{" "}
-            {batch.prefix}{String(batch.end_number).padStart(width, "0")}
-          </Text>
-        </Descriptions.Item>
-        <Descriptions.Item label="Quantity">
-          <Text strong>{batch.quantity.toLocaleString()}</Text>
-        </Descriptions.Item>
-        <Descriptions.Item label="Role Number">{batch.role_number || "—"}</Descriptions.Item>
-        <Descriptions.Item label="Production Date">{batch.production_date}</Descriptions.Item>
         <Descriptions.Item label="Status">
           <Tag color={batch.status === "activated" ? "green" : "blue"}>
             {batch.status.toUpperCase()}
           </Tag>
         </Descriptions.Item>
+        <Descriptions.Item label="Serial Range">
+          <Text code>
+            {batch.prefix}
+            {String(batch.start_number + 1).padStart(width, "0")} —{" "}
+            {batch.prefix}
+            {String(batch.end_number).padStart(width, "0")}
+          </Text>
+        </Descriptions.Item>
+        <Descriptions.Item label="Quantity">
+          <Text strong>{batch.quantity.toLocaleString()}</Text>
+        </Descriptions.Item>
+        <Descriptions.Item label="Prefix">
+          <Text code>{batch.prefix}</Text>
+        </Descriptions.Item>
+        <Descriptions.Item label="Production Date">
+          {batch.production_date}
+        </Descriptions.Item>
+        <Descriptions.Item label="Role Number">
+          {batch.role_number || "—"}
+        </Descriptions.Item>
+        <Descriptions.Item label="Created At">
+          {new Date(batch.created_at).toLocaleString()}
+        </Descriptions.Item>
       </Descriptions>
 
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Col xs={8}>
+          <Statistic
+            title="Total"
+            value={batch.quantity}
+            valueStyle={{ fontSize: 20 }}
+          />
+        </Col>
+        <Col xs={8}>
+          <Statistic
+            title="Activated"
+            value={activatedCount}
+            valueStyle={{ color: "#52c41a", fontSize: 20 }}
+            prefix={<CheckCircleOutlined />}
+          />
+        </Col>
+        <Col xs={8}>
+          <Statistic
+            title="Pending"
+            value={pendingCount}
+            valueStyle={{ color: pendingCount > 0 ? "#faad14" : "#52c41a", fontSize: 20 }}
+            prefix={<ClockCircleOutlined />}
+          />
+        </Col>
+      </Row>
+
+      <Divider style={{ margin: "8px 0 12px" }} />
+
       <Space style={{ marginBottom: 12 }}>
-        <Text type="secondary">Filter:</Text>
+        <Text type="secondary">Filter by status:</Text>
         <Select
           placeholder="All statuses"
           allowClear
@@ -201,7 +268,7 @@ export default function BatchDetail({
           showTotal: (t) => `Total: ${t.toLocaleString()}`,
           showSizeChanger: false,
         }}
-        scroll={{ y: 400 }}
+        scroll={{ y: 350 }}
       />
     </Modal>
   );
