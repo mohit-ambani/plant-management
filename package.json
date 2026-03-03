@@ -2,12 +2,14 @@
   "name": "plant-management",
   "version": "1.0.0",
   "private": true,
+  "dependencies": {
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@vercel/node": "^5.0.0"
+  },
   "scripts": {
-    "install:all": "cd backend && npm install && cd ../frontend && npm install",
-    "build:frontend": "cd frontend && npm run build",
-    "build:backend": "cd backend && npm run build",
-    "build": "npm run build:frontend && cp -r frontend/dist backend/public && npm run build:backend",
-    "start": "cd backend && npm start",
+    "build": "cd frontend && npm install && npm run build",
     "dev": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\""
   }
 }
