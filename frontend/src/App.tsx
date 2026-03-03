@@ -1,8 +1,9 @@
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { Layout, Menu, Typography, theme } from "antd";
-import { PlusCircleOutlined, UnorderedListOutlined } from "@ant-design/icons";
+import { PlusCircleOutlined, UnorderedListOutlined, ApiOutlined } from "@ant-design/icons";
 import CreateBatch from "./pages/CreateBatch";
 import BatchRecords from "./pages/BatchRecords";
+import ApiLogs from "./pages/ApiLogs";
 
 const { Header, Content } = Layout;
 const { Title } = Typography;
@@ -14,7 +15,7 @@ function AppLayout() {
     token: { colorBgContainer },
   } = theme.useToken();
 
-  const selectedKey = location.pathname === "/records" ? "records" : "create";
+  const selectedKey = location.pathname === "/records" ? "records" : location.pathname === "/api-logs" ? "api-logs" : "create";
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
@@ -34,7 +35,7 @@ function AppLayout() {
         <Menu
           mode="horizontal"
           selectedKeys={[selectedKey]}
-          onClick={({ key }) => navigate(key === "create" ? "/" : "/records")}
+          onClick={({ key }) => navigate(key === "create" ? "/" : key === "records" ? "/records" : "/api-logs")}
           style={{ flex: 1, borderBottom: "none" }}
           items={[
             {
@@ -47,6 +48,11 @@ function AppLayout() {
               icon: <UnorderedListOutlined />,
               label: "Batch Records",
             },
+            {
+              key: "api-logs",
+              icon: <ApiOutlined />,
+              label: "API Logs",
+            },
           ]}
         />
       </Header>
@@ -55,6 +61,7 @@ function AppLayout() {
         <Routes>
           <Route path="/" element={<CreateBatch />} />
           <Route path="/records" element={<BatchRecords />} />
+          <Route path="/api-logs" element={<ApiLogs />} />
         </Routes>
       </Content>
     </Layout>

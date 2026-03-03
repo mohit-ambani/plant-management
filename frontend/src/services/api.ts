@@ -94,3 +94,41 @@ export interface SearchResult {
 
 export const search = (query: string) =>
   api.get<SearchResult[]>(`/batches/search?q=${encodeURIComponent(query)}`);
+
+export interface ExportResponse {
+  message: string;
+  totalBatches: number;
+  totalSerials: number;
+  serialsActivated: number;
+  from: string;
+  to: string;
+  batches: (Batch & { serials: SerialNumber[] })[];
+}
+
+export const exportBatches = (from: string, to: string) =>
+  api.get<ExportResponse>(`/batches/export?from=${from}&to=${to}`);
+
+export interface ApiLog {
+  id: number;
+  endpoint: string;
+  method: string;
+  request_params: any;
+  response_data: any;
+  status_code: number;
+  success: boolean;
+  error_message: string | null;
+  batches_count: number;
+  serials_activated: number;
+  created_at: string;
+}
+
+export interface PaginatedLogs {
+  logs: ApiLog[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export const getApiLogs = (page: number = 1, limit: number = 50) =>
+  api.get<PaginatedLogs>(`/logs?page=${page}&limit=${limit}`);

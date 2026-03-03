@@ -51,6 +51,23 @@ async function init() {
     EXCEPTION WHEN duplicate_column THEN NULL;
     END $$;
   `);
+  // API logs table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS api_logs (
+      id SERIAL PRIMARY KEY,
+      endpoint TEXT NOT NULL,
+      method TEXT NOT NULL,
+      request_params JSONB,
+      response_data JSONB,
+      status_code INTEGER NOT NULL,
+      success BOOLEAN NOT NULL,
+      error_message TEXT,
+      batches_count INTEGER DEFAULT 0,
+      serials_activated INTEGER DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_api_logs_created_at ON api_logs(created_at);
+  `);
   initialized = true;
 }
 
@@ -88,6 +105,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // GET /api/batches/search
     if (path === "/batches/search" && method === "GET") {
       return await searchBatchesAndSerials(req, res);
+    }
+
+    // GET /api/batches/export
+    if (path === "/batches/export" && method === "GET") {
+      return await exportBatches(req, res);
+    }
+
+    // GET /api/logs
+    if (path === "/logs" && method === "GET") {
+      return await getApiLogs(req, res);
     }
 
     // GET /api/batches/:id/serials
@@ -423,4 +450,123 @@ async function deleteBatch(_req: VercelRequest, res: VercelResponse, id: number)
   await pool.query(pg("DELETE FROM batches WHERE id = ?"), [id]);
 
   return res.json({ message: "Batch deleted successfully" });
+}
+
+async function exportBatches(req: VercelRequest, res: VercelResponse) {
+  const query = getQuery(req.url || "");
+  const from = query.get("from");
+  const to = query.get("to");
+
+  if (!from || !to) {
+    const errorResp = { error: "Both 'from' and 'to' date parameters are required (YYYY-MM-DD)" };
+    await logApiCall("/batches/export", "GET", { from, to }, errorResp, 400, false, errorResp.error, 0, 0);
+    return res.status(400).json(errorResp);
+  }
+
+  try {
+    // Fetch all batches created in the date range
+    const batchResult = await pool.query(
+      `SELECT b.*,
+        (SELECT COUNT(*) FROM serial_numbers WHERE batch_id = b.id AND status = 'activated') as activated_count
+       FROM batches b
+       WHERE b.created_at >= $1::date AND b.created_at < ($2::date + INTERVAL '1 day')
+       ORDER BY b.created_at DESC`,
+      [from, to]
+    );
+
+    if (batchResult.rows.length === 0) {
+      const resp = { message: "No batches found in the given date range", batches: [], totalBatches: 0, totalSerials: 0, serialsActivated: 0 };
+      await logApiCall("/batches/export", "GET", { from, to }, resp, 200, true, null, 0, 0);
+      return res.json(resp);
+    }
+
+    // Fetch all serial numbers for these batches
+    const batchIds = batchResult.rows.map((b: any) => b.id);
+    const serialResult = await pool.query(
+      `SELECT * FROM serial_numbers WHERE batch_id = ANY($1) ORDER BY batch_id, serial_number`,
+      [batchIds]
+    );
+
+    // Activate all pending serial numbers for these batches
+    const activateResult = await pool.query(
+      `UPDATE serial_numbers SET status = 'activated', activated_at = NOW()
+       WHERE batch_id = ANY($1) AND status = 'pending'
+       RETURNING id`,
+      [batchIds]
+    );
+    const serialsActivated = activateResult.rowCount || 0;
+
+    // Update batch status if all serials are now activated
+    for (const batchId of batchIds) {
+      const remaining = await pool.query(
+        pg("SELECT COUNT(*) as count FROM serial_numbers WHERE batch_id = ? AND status = 'pending'"),
+        [batchId]
+      );
+      if (parseInt(remaining.rows[0].count) === 0) {
+        await pool.query(pg("UPDATE batches SET status = 'activated' WHERE id = ?"), [batchId]);
+      }
+    }
+
+    // Group serials by batch
+    const serialsByBatch: Record<number, any[]> = {};
+    for (const s of serialResult.rows) {
+      if (!serialsByBatch[s.batch_id]) serialsByBatch[s.batch_id] = [];
+      serialsByBatch[s.batch_id].push(s);
+    }
+
+    const batches = batchResult.rows.map((b: any) => ({
+      ...b,
+      serials: serialsByBatch[b.id] || [],
+    }));
+
+    const resp = {
+      message: `Found ${batches.length} batches. Activated ${serialsActivated} serial numbers.`,
+      totalBatches: batches.length,
+      totalSerials: serialResult.rows.length,
+      serialsActivated,
+      from,
+      to,
+      batches,
+    };
+
+    await logApiCall("/batches/export", "GET", { from, to }, { message: resp.message, totalBatches: resp.totalBatches, totalSerials: resp.totalSerials, serialsActivated: resp.serialsActivated }, 200, true, null, batches.length, serialsActivated);
+    return res.json(resp);
+  } catch (err: any) {
+    const errorResp = { error: err.message };
+    await logApiCall("/batches/export", "GET", { from, to }, errorResp, 500, false, err.message, 0, 0);
+    return res.status(500).json(errorResp);
+  }
+}
+
+async function logApiCall(
+  endpoint: string, method: string, requestParams: any, responseData: any,
+  statusCode: number, success: boolean, errorMessage: string | null,
+  batchesCount: number, serialsActivated: number
+) {
+  try {
+    await pool.query(
+      `INSERT INTO api_logs (endpoint, method, request_params, response_data, status_code, success, error_message, batches_count, serials_activated)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [endpoint, method, JSON.stringify(requestParams), JSON.stringify(responseData), statusCode, success, errorMessage, batchesCount, serialsActivated]
+    );
+  } catch (e) {
+    console.error("Failed to log API call:", e);
+  }
+}
+
+async function getApiLogs(req: VercelRequest, res: VercelResponse) {
+  const query = getQuery(req.url || "");
+  const page = parseInt(query.get("page") || "1");
+  const limit = parseInt(query.get("limit") || "50");
+  const offset = (page - 1) * limit;
+
+  const logs = await pool.query(
+    `SELECT * FROM api_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+    [limit, offset]
+  );
+
+  const countResult = await pool.query("SELECT COUNT(*) as total FROM api_logs");
+  const total = parseInt(countResult.rows[0].total);
+
+  return res.json({ logs: logs.rows, total, page, limit, totalPages: Math.ceil(total / limit) });
 }

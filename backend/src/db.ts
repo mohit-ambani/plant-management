@@ -50,6 +50,21 @@ function createSqliteDb() {
         CREATE INDEX IF NOT EXISTS idx_serial_number ON serial_numbers(serial_number);
         CREATE INDEX IF NOT EXISTS idx_batch_id ON serial_numbers(batch_id);
         CREATE INDEX IF NOT EXISTS idx_serial_status ON serial_numbers(status);
+
+        CREATE TABLE IF NOT EXISTS api_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          endpoint TEXT NOT NULL,
+          method TEXT NOT NULL,
+          request_params TEXT,
+          response_data TEXT,
+          status_code INTEGER NOT NULL,
+          success INTEGER NOT NULL DEFAULT 0,
+          error_message TEXT,
+          batches_count INTEGER DEFAULT 0,
+          serials_activated INTEGER DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_api_logs_created_at ON api_logs(created_at);
       `);
     },
 
@@ -134,6 +149,23 @@ function createPgDb() {
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_serial_number ON serial_numbers(serial_number)`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_batch_id ON serial_numbers(batch_id)`);
       await pool.query(`CREATE INDEX IF NOT EXISTS idx_serial_status ON serial_numbers(status)`);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS api_logs (
+          id SERIAL PRIMARY KEY,
+          endpoint TEXT NOT NULL,
+          method TEXT NOT NULL,
+          request_params JSONB,
+          response_data JSONB,
+          status_code INTEGER NOT NULL,
+          success BOOLEAN NOT NULL DEFAULT false,
+          error_message TEXT,
+          batches_count INTEGER DEFAULT 0,
+          serials_activated INTEGER DEFAULT 0,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_api_logs_created_at ON api_logs(created_at);
+      `);
     },
 
     async query(sql: string, params: any[] = []): Promise<any[]> {

@@ -3,6 +3,21 @@ import db from "../db";
 
 const router = Router();
 
+async function logApiCall(
+  db: any, endpoint: string, method: string, requestParams: any, responseData: any,
+  statusCode: number, success: boolean, errorMessage: string | null,
+  batchesCount: number, serialsActivated: number
+) {
+  try {
+    await db.execute(
+      "INSERT INTO api_logs (endpoint, method, request_params, response_data, status_code, success, error_message, batches_count, serials_activated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [endpoint, method, JSON.stringify(requestParams), JSON.stringify(responseData), statusCode, success ? 1 : 0, errorMessage, batchesCount, serialsActivated]
+    );
+  } catch (e) {
+    console.error("Failed to log API call:", e);
+  }
+}
+
 // Create a new batch
 router.post("/", async (req: Request, res: Response) => {
   const { ranges, batchCode, skuId, productionDate, roleNumber } = req.body;
@@ -301,6 +316,100 @@ router.post("/:id/activate", async (req: Request, res: Response) => {
     errors: errors.length,
     errorDetails: errors,
   });
+});
+
+// Export batches by created date range and activate serials
+router.get("/export", async (req: Request, res: Response) => {
+  const from = req.query.from as string;
+  const to = req.query.to as string;
+
+  if (!from || !to) {
+    const errorResp = { error: "Both 'from' and 'to' date parameters are required (YYYY-MM-DD)" };
+    await logApiCall(db, "/batches/export", "GET", { from, to }, errorResp, 400, false, errorResp.error, 0, 0);
+    res.status(400).json(errorResp);
+    return;
+  }
+
+  try {
+    const batches = await db.query(
+      `SELECT b.*,
+        (SELECT COUNT(*) FROM serial_numbers WHERE batch_id = b.id AND status = 'activated') as activated_count
+       FROM batches b
+       WHERE b.created_at >= ? AND b.created_at < date(?, '+1 day')
+       ORDER BY b.created_at DESC`,
+      [from, to]
+    );
+
+    if (batches.length === 0) {
+      const resp = { message: "No batches found in the given date range", batches: [], totalBatches: 0, totalSerials: 0, serialsActivated: 0 };
+      await logApiCall(db, "/batches/export", "GET", { from, to }, resp, 200, true, null, 0, 0);
+      res.json(resp);
+      return;
+    }
+
+    const batchIds = batches.map((b: any) => b.id);
+    let allSerials: any[] = [];
+    let serialsActivated = 0;
+
+    for (const batchId of batchIds) {
+      const serials = await db.query("SELECT * FROM serial_numbers WHERE batch_id = ? ORDER BY serial_number", [batchId]);
+      allSerials.push(...serials.map((s: any) => ({ ...s, _batch_id: batchId })));
+
+      // Activate pending serials
+      await db.execute("UPDATE serial_numbers SET status = 'activated', activated_at = NOW() WHERE batch_id = ? AND status = 'pending'", [batchId]);
+
+      const activated = serials.filter((s: any) => s.status === 'pending').length;
+      serialsActivated += activated;
+
+      // Update batch status
+      const remaining = await db.queryOne("SELECT COUNT(*) as count FROM serial_numbers WHERE batch_id = ? AND status = 'pending'", [batchId]);
+      if (remaining && remaining.count === 0) {
+        await db.execute("UPDATE batches SET status = 'activated' WHERE id = ?", [batchId]);
+      }
+    }
+
+    const serialsByBatch: Record<number, any[]> = {};
+    for (const s of allSerials) {
+      const bid = s._batch_id || s.batch_id;
+      if (!serialsByBatch[bid]) serialsByBatch[bid] = [];
+      serialsByBatch[bid].push(s);
+    }
+
+    const result = batches.map((b: any) => ({
+      ...b,
+      serials: serialsByBatch[b.id] || [],
+    }));
+
+    const resp = {
+      message: `Found ${result.length} batches. Activated ${serialsActivated} serial numbers.`,
+      totalBatches: result.length,
+      totalSerials: allSerials.length,
+      serialsActivated,
+      from,
+      to,
+      batches: result,
+    };
+
+    await logApiCall(db, "/batches/export", "GET", { from, to }, { message: resp.message, totalBatches: resp.totalBatches, totalSerials: resp.totalSerials, serialsActivated: resp.serialsActivated }, 200, true, null, result.length, serialsActivated);
+    res.json(resp);
+  } catch (err: any) {
+    const errorResp = { error: err.message };
+    await logApiCall(db, "/batches/export", "GET", { from, to }, errorResp, 500, false, err.message, 0, 0);
+    res.status(500).json(errorResp);
+  }
+});
+
+// Get API logs
+router.get("/logs", async (req: Request, res: Response) => {
+  const page = parseInt(req.query.page as string) || 1;
+  const limit = parseInt(req.query.limit as string) || 50;
+  const offset = (page - 1) * limit;
+
+  const logs = await db.query("SELECT * FROM api_logs ORDER BY created_at DESC LIMIT ? OFFSET ?", [limit, offset]);
+  const countResult = await db.queryOne("SELECT COUNT(*) as total FROM api_logs");
+  const total = countResult?.total || 0;
+
+  res.json({ logs, total, page, limit, totalPages: Math.ceil(total / limit) });
 });
 
 // Delete a batch
