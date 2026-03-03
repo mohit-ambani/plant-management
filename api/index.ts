@@ -242,11 +242,6 @@ async function createBatch(req: VercelRequest, res: VercelResponse) {
     let externalApiResult: any = null;
 
     const externalPayload = {
-      batchCode,
-      skuId,
-      productionDate,
-      roleNumber: roleNumber || null,
-      quantity: totalQuantity,
       serialNumbers: allSerials.join(","),
     };
 
