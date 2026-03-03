@@ -147,6 +147,10 @@ router.post("/", async (req: Request, res: Response) => {
       };
     }
 
+    // Mark all serial numbers as activated and batch as activated
+    await db.execute("UPDATE serial_numbers SET status = 'activated', activated_at = NOW() WHERE batch_id = ?", [batchId]);
+    await db.execute("UPDATE batches SET status = 'activated' WHERE id = ?", [batchId]);
+
     // Log external API call
     await logApiCall(
       db,
@@ -158,7 +162,7 @@ router.post("/", async (req: Request, res: Response) => {
       externalApiResult.success,
       externalApiResult.success ? null : externalApiResult.response,
       1,
-      0
+      allSerials.length
     );
 
     const batch = await db.queryOne("SELECT * FROM batches WHERE id = ?", [batchId]);
@@ -474,22 +478,6 @@ router.get("/logs", async (req: Request, res: Response) => {
   const total = countResult?.total || 0;
 
   res.json({ logs, total, page, limit, totalPages: Math.ceil(total / limit) });
-});
-
-// Delete a batch
-router.delete("/:id", async (req: Request, res: Response) => {
-  const batch = await db.queryOne("SELECT * FROM batches WHERE id = ?", [req.params.id]);
-  if (!batch) {
-    res.status(404).json({ error: "Batch not found" });
-    return;
-  }
-
-  await db.transaction(async (tx) => {
-    await tx.execute("DELETE FROM serial_numbers WHERE batch_id = ?", [req.params.id]);
-    await tx.execute("DELETE FROM batches WHERE id = ?", [req.params.id]);
-  });
-
-  res.json({ message: "Batch deleted successfully" });
 });
 
 export default router;

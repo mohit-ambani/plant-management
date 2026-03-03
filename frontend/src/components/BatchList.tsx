@@ -5,7 +5,6 @@ import {
   Tag,
   Button,
   Space,
-  Popconfirm,
   message,
   Progress,
   Typography,
@@ -15,7 +14,6 @@ import {
   Col,
 } from "antd";
 import {
-  DeleteOutlined,
   ThunderboltOutlined,
   EyeOutlined,
   UnorderedListOutlined,
@@ -25,7 +23,7 @@ import {
 } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
-import { Batch, activateBatch, deleteBatch } from "../services/api";
+import { Batch, activateBatch } from "../services/api";
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -82,16 +80,6 @@ export default function BatchList({
       message.error(err.response?.data?.error || "Activation failed");
     } finally {
       setActivatingId(null);
-    }
-  };
-
-  const handleDelete = async (id: number) => {
-    try {
-      await deleteBatch(id);
-      message.success("Batch deleted");
-      onRefresh();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || "Delete failed");
     }
   };
 
@@ -201,17 +189,6 @@ export default function BatchList({
               Activate
             </Button>
           )}
-          <Popconfirm
-            title="Delete this batch?"
-            description="All serial numbers in this batch will be permanently deleted."
-            onConfirm={() => handleDelete(record.id)}
-            okText="Delete"
-            okType="danger"
-          >
-            <Button type="link" danger icon={<DeleteOutlined />} size="small">
-              Delete
-            </Button>
-          </Popconfirm>
         </Space>
       ),
     },

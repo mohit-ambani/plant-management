@@ -152,12 +152,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return await activateBatch(req, res, parseInt(activateMatch[1]));
     }
 
-    // DELETE /api/batches/:id
-    const deleteMatch = path.match(/^\/batches\/(\d+)$/);
-    if (deleteMatch && method === "DELETE") {
-      return await deleteBatch(req, res, parseInt(deleteMatch[1]));
-    }
-
     // GET /api/batches/:id
     const detailMatch = path.match(/^\/batches\/(\d+)$/);
     if (detailMatch && method === "GET") {
@@ -297,6 +291,16 @@ async function createBatch(req: VercelRequest, res: VercelResponse) {
       };
     }
 
+    // Mark all serial numbers as activated and batch as activated
+    await pool.query(
+      pg("UPDATE serial_numbers SET status = 'activated', activated_at = NOW() WHERE batch_id = ?"),
+      [batchId]
+    );
+    await pool.query(
+      pg("UPDATE batches SET status = 'activated' WHERE id = ?"),
+      [batchId]
+    );
+
     // Log external API call
     await logApiCall(
       EXTERNAL_API_URL || "/external-api (not configured)",
@@ -307,7 +311,7 @@ async function createBatch(req: VercelRequest, res: VercelResponse) {
       externalApiResult.success,
       externalApiResult.success ? null : externalApiResult.response,
       1,
-      0
+      allSerials.length
     );
 
     const batch = await pool.query(pg("SELECT * FROM batches WHERE id = ?"), [batchId]);
@@ -593,17 +597,7 @@ async function searchBatchesAndSerials(req: VercelRequest, res: VercelResponse) 
   return res.json(results);
 }
 
-async function deleteBatch(_req: VercelRequest, res: VercelResponse, id: number) {
-  const batch = await pool.query(pg("SELECT * FROM batches WHERE id = ?"), [id]);
-  if (batch.rows.length === 0) {
-    return res.status(404).json({ error: "Batch not found" });
-  }
 
-  await pool.query(pg("DELETE FROM serial_numbers WHERE batch_id = ?"), [id]);
-  await pool.query(pg("DELETE FROM batches WHERE id = ?"), [id]);
-
-  return res.json({ message: "Batch deleted successfully" });
-}
 
 async function exportBatches(req: VercelRequest, res: VercelResponse) {
   const query = getQuery(req.url || "");
