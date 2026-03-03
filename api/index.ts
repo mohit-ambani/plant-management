@@ -266,7 +266,7 @@ async function createBatch(req: VercelRequest, res: VercelResponse) {
     let externalApiResult: any = null;
 
     const externalPayload = {
-      serialNumbers: allSerials.join(","),
+      SerialBatchNumber: allSerials.join(","),
     };
 
     if (EXTERNAL_API_URL) {

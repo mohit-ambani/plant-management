@@ -116,7 +116,7 @@ router.post("/", async (req: Request, res: Response) => {
     let externalApiResult: any = null;
 
     const externalPayload = {
-      serialNumbers: allSerials.join(","),
+      SerialBatchNumber: allSerials.join(","),
     };
 
     if (EXTERNAL_API_URL) {
