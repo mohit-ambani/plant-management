@@ -147,6 +147,20 @@ router.post("/", async (req: Request, res: Response) => {
       };
     }
 
+    // Log external API call
+    await logApiCall(
+      db,
+      EXTERNAL_API_URL || "/external-api (not configured)",
+      "POST",
+      { batchCode, serialCount: allSerials.length, payload: externalPayload },
+      externalApiResult,
+      externalApiResult.status,
+      externalApiResult.success,
+      externalApiResult.success ? null : externalApiResult.response,
+      1,
+      0
+    );
+
     const batch = await db.queryOne("SELECT * FROM batches WHERE id = ?", [batchId]);
     res.status(201).json({
       message: "Batch created successfully",

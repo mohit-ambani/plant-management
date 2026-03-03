@@ -297,6 +297,19 @@ async function createBatch(req: VercelRequest, res: VercelResponse) {
       };
     }
 
+    // Log external API call
+    await logApiCall(
+      EXTERNAL_API_URL || "/external-api (not configured)",
+      "POST",
+      { batchCode, serialCount: allSerials.length, payload: externalPayload },
+      externalApiResult,
+      externalApiResult.status,
+      externalApiResult.success,
+      externalApiResult.success ? null : externalApiResult.response,
+      1,
+      0
+    );
+
     const batch = await pool.query(pg("SELECT * FROM batches WHERE id = ?"), [batchId]);
     return res.status(201).json({
       message: "Batch created successfully",
