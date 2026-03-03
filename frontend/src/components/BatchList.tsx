@@ -93,6 +93,12 @@ export default function BatchList({
       sorter: (a, b) => a.quantity - b.quantity,
     },
     {
+      title: "Role Number",
+      dataIndex: "role_number",
+      key: "role_number",
+      render: (val) => val || "—",
+    },
+    {
       title: "Production Date",
       dataIndex: "production_date",
       key: "production_date",

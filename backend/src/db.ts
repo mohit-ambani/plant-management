@@ -32,6 +32,7 @@ function createSqliteDb() {
           end_number INTEGER NOT NULL,
           quantity INTEGER NOT NULL,
           production_date TEXT NOT NULL,
+          role_number TEXT,
           created_at TEXT NOT NULL DEFAULT (datetime('now')),
           status TEXT NOT NULL DEFAULT 'created'
         );
@@ -114,6 +115,7 @@ function createPgDb() {
           end_number INTEGER NOT NULL,
           quantity INTEGER NOT NULL,
           production_date TEXT NOT NULL,
+          role_number TEXT,
           created_at TIMESTAMP NOT NULL DEFAULT NOW(),
           status TEXT NOT NULL DEFAULT 'created'
         );

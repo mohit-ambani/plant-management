@@ -26,6 +26,7 @@ async function init() {
       end_number INTEGER NOT NULL,
       quantity INTEGER NOT NULL,
       production_date TEXT NOT NULL,
+      role_number TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       status TEXT NOT NULL DEFAULT 'created'
     );
@@ -42,6 +43,13 @@ async function init() {
     CREATE INDEX IF NOT EXISTS idx_serial_number ON serial_numbers(serial_number);
     CREATE INDEX IF NOT EXISTS idx_batch_id ON serial_numbers(batch_id);
     CREATE INDEX IF NOT EXISTS idx_serial_status ON serial_numbers(status);
+  `);
+  // Add role_number column if it doesn't exist (migration)
+  await pool.query(`
+    DO $$ BEGIN
+      ALTER TABLE batches ADD COLUMN role_number TEXT;
+    EXCEPTION WHEN duplicate_column THEN NULL;
+    END $$;
   `);
   initialized = true;
 }
@@ -109,7 +117,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 
 async function createBatch(req: VercelRequest, res: VercelResponse) {
-  const { startSerial, endSerial, batchCode, skuId, productionDate } = req.body;
+  const { startSerial, endSerial, batchCode, skuId, productionDate, roleNumber } = req.body;
 
   if (!startSerial || !endSerial || !batchCode || !skuId || !productionDate) {
     return res.status(400).json({ error: "All fields are required" });
@@ -156,8 +164,8 @@ async function createBatch(req: VercelRequest, res: VercelResponse) {
     await client.query("BEGIN");
 
     const batchResult = await client.query(
-      pg("INSERT INTO batches (batch_code, sku_id, prefix, start_number, end_number, quantity, production_date) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id"),
-      [batchCode, skuId, prefix, startNum, endNum, quantity, productionDate]
+      pg("INSERT INTO batches (batch_code, sku_id, prefix, start_number, end_number, quantity, production_date, role_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"),
+      [batchCode, skuId, prefix, startNum, endNum, quantity, productionDate, roleNumber || null]
     );
     const batchId = batchResult.rows[0].id;
 

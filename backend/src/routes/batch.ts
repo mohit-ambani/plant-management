@@ -5,7 +5,7 @@ const router = Router();
 
 // Create a new batch
 router.post("/", async (req: Request, res: Response) => {
-  const { startSerial, endSerial, batchCode, skuId, productionDate } = req.body;
+  const { startSerial, endSerial, batchCode, skuId, productionDate, roleNumber } = req.body;
 
   if (!startSerial || !endSerial || !batchCode || !skuId || !productionDate) {
     res.status(400).json({ error: "All fields are required" });
@@ -56,8 +56,8 @@ router.post("/", async (req: Request, res: Response) => {
   try {
     const batchId = await db.transaction(async (tx) => {
       const result = await tx.execute(
-        "INSERT INTO batches (batch_code, sku_id, prefix, start_number, end_number, quantity, production_date) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [batchCode, skuId, prefix, startNum, endNum, quantity, productionDate]
+        "INSERT INTO batches (batch_code, sku_id, prefix, start_number, end_number, quantity, production_date, role_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [batchCode, skuId, prefix, startNum, endNum, quantity, productionDate, roleNumber || null]
       );
       const id = result.lastId;
 

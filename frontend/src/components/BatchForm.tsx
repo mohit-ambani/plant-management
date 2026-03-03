@@ -110,6 +110,7 @@ export default function BatchForm({ onSuccess }: BatchFormProps) {
         batchCode: values.batchCode,
         skuId: values.skuId,
         productionDate: values.productionDate.format("YYYY-MM-DD"),
+        roleNumber: values.roleNumber || undefined,
       });
       message.success(`Batch created successfully with ${quantity} serial numbers`);
       form.resetFields();
@@ -183,7 +184,7 @@ export default function BatchForm({ onSuccess }: BatchFormProps) {
         </Row>
 
         <Row gutter={16}>
-          <Col xs={24} sm={8}>
+          <Col xs={24} sm={6}>
             <Form.Item
               name="batchCode"
               label="Batch Code"
@@ -192,7 +193,7 @@ export default function BatchForm({ onSuccess }: BatchFormProps) {
               <Input prefix={<TagOutlined />} placeholder="e.g., BATCH-2024-001" />
             </Form.Item>
           </Col>
-          <Col xs={24} sm={8}>
+          <Col xs={24} sm={6}>
             <Form.Item
               name="skuId"
               label="SKU ID"
@@ -201,7 +202,15 @@ export default function BatchForm({ onSuccess }: BatchFormProps) {
               <Input prefix={<NumberOutlined />} placeholder="e.g., SKU-001" />
             </Form.Item>
           </Col>
-          <Col xs={24} sm={8}>
+          <Col xs={24} sm={6}>
+            <Form.Item
+              name="roleNumber"
+              label="Role Number"
+            >
+              <Input prefix={<NumberOutlined />} placeholder="Optional" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={6}>
             <Form.Item
               name="productionDate"
               label="Production Date"

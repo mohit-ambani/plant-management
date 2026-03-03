@@ -161,6 +161,7 @@ export default function BatchDetail({
         <Descriptions.Item label="Quantity">
           <Text strong>{batch.quantity.toLocaleString()}</Text>
         </Descriptions.Item>
+        <Descriptions.Item label="Role Number">{batch.role_number || "—"}</Descriptions.Item>
         <Descriptions.Item label="Production Date">{batch.production_date}</Descriptions.Item>
         <Descriptions.Item label="Status">
           <Tag color={batch.status === "activated" ? "green" : "blue"}>

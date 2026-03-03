@@ -13,6 +13,7 @@ export interface Batch {
   end_number: number;
   quantity: number;
   production_date: string;
+  role_number: string | null;
   created_at: string;
   status: string;
   activated_count?: number;
@@ -43,6 +44,7 @@ export const createBatch = (data: {
   batchCode: string;
   skuId: string;
   productionDate: string;
+  roleNumber?: string;
 }) => api.post<{ message: string; batch: Batch }>("/batches", data);
 
 export const getBatches = () => api.get<Batch[]>("/batches");
