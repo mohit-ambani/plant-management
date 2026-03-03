@@ -44,7 +44,12 @@ export const createBatch = (data: {
   skuId: string;
   productionDate: string;
   roleNumber?: string;
-}) => api.post<{ message: string; batch: Batch }>("/batches", data);
+}) => api.post<{
+  message: string;
+  batch: Batch;
+  externalApi: { status: number; success: boolean; response: string } | null;
+  samplePayloadSent: any;
+}>("/batches", data);
 
 export const getBatches = () => api.get<Batch[]>("/batches");
 

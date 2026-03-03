@@ -149,14 +149,22 @@ export default function BatchForm() {
 
     setLoading(true);
     try {
-      await createBatch({
+      const res = await createBatch({
         ranges,
         batchCode: values.batchCode,
         skuId: values.skuId,
         productionDate: values.productionDate.format("YYYY-MM-DD"),
         roleNumber: values.roleNumber || undefined,
       });
-      message.success(`Batch created successfully with ${totalQuantity} serial numbers`);
+      const extApi = res.data.externalApi;
+      if (extApi?.success) {
+        message.success(`Batch created with ${totalQuantity} serial numbers. External API: success.`);
+      } else {
+        message.success(`Batch created with ${totalQuantity} serial numbers.`);
+        if (extApi) {
+          message.warning(`External API: ${extApi.response}`, 6);
+        }
+      }
       form.resetFields();
       setRangeInfos([null]);
     } catch (err: any) {

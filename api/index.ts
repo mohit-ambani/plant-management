@@ -229,8 +229,62 @@ async function createBatch(req: VercelRequest, res: VercelResponse) {
 
     await client.query("COMMIT");
 
+    // Collect all generated serial numbers
+    const allSerials: string[] = [];
+    for (const r of parsedRanges) {
+      for (let i = r.startNum + 1; i <= r.endNum; i++) {
+        allSerials.push(`${r.prefix}${String(i).padStart(r.width, "0")}`);
+      }
+    }
+
+    // Call external activation API
+    const EXTERNAL_API_URL = process.env.EXTERNAL_API_URL;
+    let externalApiResult: any = null;
+
+    const externalPayload = {
+      batchCode,
+      skuId,
+      productionDate,
+      roleNumber: roleNumber || null,
+      quantity: totalQuantity,
+      serialNumbers: allSerials.join(","),
+    };
+
+    if (EXTERNAL_API_URL) {
+      try {
+        const extResponse = await fetch(EXTERNAL_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(externalPayload),
+        });
+        const extBody = await extResponse.text();
+        externalApiResult = {
+          status: extResponse.status,
+          success: extResponse.ok,
+          response: extBody,
+        };
+      } catch (err: any) {
+        externalApiResult = {
+          status: 0,
+          success: false,
+          response: err.message,
+        };
+      }
+    } else {
+      externalApiResult = {
+        status: 0,
+        success: false,
+        response: "No EXTERNAL_API_URL configured. Set it in environment variables.",
+      };
+    }
+
     const batch = await pool.query(pg("SELECT * FROM batches WHERE id = ?"), [batchId]);
-    return res.status(201).json({ message: "Batch created successfully", batch: batch.rows[0] });
+    return res.status(201).json({
+      message: "Batch created successfully",
+      batch: batch.rows[0],
+      externalApi: externalApiResult,
+      samplePayloadSent: externalPayload,
+    });
   } catch (e) {
     await client.query("ROLLBACK");
     throw e;
