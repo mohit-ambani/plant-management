@@ -127,6 +127,11 @@ export default function ApiLogs() {
       dataIndex: "endpoint",
       key: "endpoint",
       width: 160,
+      ellipsis: true,
+      render: (v: string) => {
+        const short = v.length > 30 ? "..." + v.slice(-27) : v;
+        return <Text style={{ fontSize: 12 }}>{short}</Text>;
+      },
     },
     {
       title: "Method",
@@ -169,22 +174,58 @@ export default function ApiLogs() {
       title: "Request",
       dataIndex: "request_params",
       key: "request_params",
+      width: 220,
+      render: (v: any) => {
+        const obj = typeof v === "string" ? (() => { try { return JSON.parse(v); } catch { return v; } })() : v;
+        if (obj && typeof obj === "object") {
+          const { payload, ...rest } = obj;
+          const summary = { ...rest };
+          if (payload?.SerialBatchNumber) {
+            const serials = payload.SerialBatchNumber;
+            const count = serials.split(",").length;
+            summary.serials = `${count} serial numbers`;
+          }
+          return (
+            <Text code style={{ fontSize: 11 }}>
+              {JSON.stringify(summary).slice(0, 80)}{JSON.stringify(summary).length > 80 ? "..." : ""}
+            </Text>
+          );
+        }
+        const str = typeof obj === "string" ? obj : JSON.stringify(obj);
+        return (
+          <Text code style={{ fontSize: 11 }}>
+            {str.slice(0, 80)}{str.length > 80 ? "..." : ""}
+          </Text>
+        );
+      },
+    },
+    {
+      title: "Response",
+      dataIndex: "response_data",
+      key: "response_data",
       width: 200,
-      render: (v: any) => (
-        <Text code style={{ fontSize: 12 }}>
-          {typeof v === "string" ? v : JSON.stringify(v)}
-        </Text>
-      ),
+      ellipsis: true,
+      render: (v: any) => {
+        if (!v) return "-";
+        const str = typeof v === "string" ? v : JSON.stringify(v);
+        const truncated = str.slice(0, 80);
+        return (
+          <Text style={{ fontSize: 11 }}>
+            {truncated}{str.length > 80 ? "..." : ""}
+          </Text>
+        );
+      },
     },
     {
       title: "Error",
       dataIndex: "error_message",
       key: "error_message",
+      width: 150,
       ellipsis: true,
       render: (v: string | null) =>
         v ? (
-          <Text type="danger" style={{ fontSize: 12 }}>
-            {v}
+          <Text type="danger" style={{ fontSize: 11 }}>
+            {v.slice(0, 60)}{v.length > 60 ? "..." : ""}
           </Text>
         ) : (
           "-"
