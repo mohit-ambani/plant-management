@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { Pool } from "pg";
+import * as XLSX from "xlsx";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -117,6 +118,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // GET /api/batches/export
     if (path === "/batches/export" && method === "GET") {
       return await exportBatches(req, res);
+    }
+
+    // GET /api/batches/download
+    if (path === "/batches/download" && method === "GET") {
+      return await downloadBatches(res);
     }
 
     // GET /api/logs
@@ -314,6 +320,73 @@ async function listBatches(_req: VercelRequest, res: VercelResponse) {
     ORDER BY b.created_at DESC
   `);
   return res.json(result.rows);
+}
+
+async function downloadBatches(res: VercelResponse) {
+  const batches = await pool.query(`
+    SELECT b.*,
+      (SELECT COUNT(*) FROM serial_numbers WHERE batch_id = b.id AND status = 'activated') as activated_count
+    FROM batches b
+    ORDER BY b.created_at DESC
+  `);
+
+  const serials = await pool.query(`
+    SELECT s.serial_number, s.batch_code, s.sku_id, s.status, s.activated_at, s.created_at,
+           b.role_number, b.production_date
+    FROM serial_numbers s
+    JOIN batches b ON s.batch_id = b.id
+    ORDER BY s.batch_code, s.serial_number
+  `);
+
+  const batchRows = batches.rows.map((b: any) => ({
+    "Batch Code": b.batch_code,
+    "SKU ID": b.sku_id,
+    "Prefix": b.prefix,
+    "Start Number": b.start_number,
+    "End Number": b.end_number,
+    "Quantity": b.quantity,
+    "Activated": parseInt(b.activated_count) || 0,
+    "Role Number": b.role_number || "",
+    "Production Date": b.production_date,
+    "Status": b.status,
+    "Created At": b.created_at ? new Date(b.created_at).toISOString().replace("T", " ").substring(0, 19) : "",
+  }));
+
+  const serialRows = serials.rows.map((s: any) => ({
+    "Serial Number": s.serial_number,
+    "Batch Code": s.batch_code,
+    "SKU ID": s.sku_id,
+    "Role Number": s.role_number || "",
+    "Production Date": s.production_date,
+    "Status": s.status,
+    "Activated At": s.activated_at ? new Date(s.activated_at).toISOString().replace("T", " ").substring(0, 19) : "",
+    "Created At": s.created_at ? new Date(s.created_at).toISOString().replace("T", " ").substring(0, 19) : "",
+  }));
+
+  const wb = XLSX.utils.book_new();
+  const batchSheet = XLSX.utils.json_to_sheet(batchRows);
+  const serialSheet = XLSX.utils.json_to_sheet(serialRows);
+
+  // Auto-size columns
+  const autoWidth = (sheet: XLSX.WorkSheet, data: any[]) => {
+    if (data.length === 0) return;
+    const cols = Object.keys(data[0]).map((key) => {
+      const maxLen = Math.max(key.length, ...data.map((r) => String(r[key] ?? "").length));
+      return { wch: Math.min(maxLen + 2, 40) };
+    });
+    sheet["!cols"] = cols;
+  };
+  autoWidth(batchSheet, batchRows);
+  autoWidth(serialSheet, serialRows);
+
+  XLSX.utils.book_append_sheet(wb, batchSheet, "Batches");
+  XLSX.utils.book_append_sheet(wb, serialSheet, "Serial Numbers");
+
+  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="batches_${new Date().toISOString().substring(0, 10)}.xlsx"`);
+  return res.send(Buffer.from(buf));
 }
 
 async function getBatchDetail(_req: VercelRequest, res: VercelResponse, id: number) {

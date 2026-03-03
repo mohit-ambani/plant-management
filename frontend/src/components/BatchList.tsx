@@ -21,6 +21,7 @@ import {
   UnorderedListOutlined,
   SearchOutlined,
   ClearOutlined,
+  DownloadOutlined,
 } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
@@ -225,11 +226,19 @@ export default function BatchList({
         </Space>
       }
       extra={
-        <Text type="secondary">
-          {hasFilters
-            ? `${filteredBatches.length} of ${batches.length} batch${batches.length !== 1 ? "es" : ""}`
-            : `${batches.length} batch${batches.length !== 1 ? "es" : ""}`}
-        </Text>
+        <Space>
+          <Text type="secondary">
+            {hasFilters
+              ? `${filteredBatches.length} of ${batches.length} batch${batches.length !== 1 ? "es" : ""}`
+              : `${batches.length} batch${batches.length !== 1 ? "es" : ""}`}
+          </Text>
+          <Button
+            icon={<DownloadOutlined />}
+            href="/api/batches/download"
+          >
+            Download Excel
+          </Button>
+        </Space>
       }
     >
       <Row gutter={12} style={{ marginBottom: 16 }}>
