@@ -65,6 +65,15 @@ router.post("/", async (req: Request, res: Response) => {
 
   const totalQuantity = parsedRanges.reduce((sum, r) => sum + r.quantity, 0);
 
+  // Generate all serial numbers once in memory
+  const allSerials: string[] = [];
+  for (const r of parsedRanges) {
+    for (let i = r.startNum + 1; i <= r.endNum; i++) {
+      allSerials.push(`${r.prefix}${String(i).padStart(r.width, "0")}`);
+    }
+  }
+
+  // Overlap check — sample first/last of each range
   for (const r of parsedRanges) {
     const firstSerial = `${r.prefix}${String(r.startNum + 1).padStart(r.width, "0")}`;
     const lastSerial = `${r.prefix}${String(r.endNum).padStart(r.width, "0")}`;
@@ -78,46 +87,43 @@ router.post("/", async (req: Request, res: Response) => {
     }
   }
 
+  // Fetch external API URL early (outside transaction)
+  const urlSetting = await db.queryOne("SELECT value FROM settings WHERE key = 'external_api_url'");
+  const EXTERNAL_API_URL = urlSetting?.value || process.env.EXTERNAL_API_URL;
+
   const firstRange = parsedRanges[0];
   const lastRange = parsedRanges[parsedRanges.length - 1];
 
   try {
     const batchId = await db.transaction(async (tx) => {
+      // Insert batch directly as activated
       const result = await tx.execute(
-        "INSERT INTO batches (batch_code, sku_id, prefix, start_number, end_number, quantity, production_date, role_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO batches (batch_code, sku_id, prefix, start_number, end_number, quantity, production_date, role_number, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'activated')",
         [batchCode, skuId, firstRange.prefix, firstRange.startNum, lastRange.endNum, totalQuantity, productionDate, roleNumber || null]
       );
       const id = result.lastId;
 
-      for (const r of parsedRanges) {
-        for (let i = r.startNum + 1; i <= r.endNum; i++) {
-          const serialNumber = `${r.prefix}${String(i).padStart(r.width, "0")}`;
-          await tx.execute(
-            "INSERT INTO serial_numbers (batch_id, serial_number, batch_code, sku_id) VALUES (?, ?, ?, ?)",
-            [id, serialNumber, batchCode, skuId]
-          );
+      // Bulk insert serials in chunks of 500 rows using multi-row VALUES
+      const CHUNK = 500;
+      for (let c = 0; c < allSerials.length; c += CHUNK) {
+        const chunk = allSerials.slice(c, c + CHUNK);
+        const placeholders = chunk.map(() => "(?, ?, ?, ?, 'activated', NOW())").join(",");
+        const params: any[] = [];
+        for (const s of chunk) {
+          params.push(id, s, batchCode, skuId);
         }
+        await tx.execute(
+          `INSERT INTO serial_numbers (batch_id, serial_number, batch_code, sku_id, status, activated_at) VALUES ${placeholders}`,
+          params
+        );
       }
 
       return id;
     });
 
-    // Collect all generated serial numbers
-    const allSerials: string[] = [];
-    for (const r of parsedRanges) {
-      for (let i = r.startNum + 1; i <= r.endNum; i++) {
-        allSerials.push(`${r.prefix}${String(i).padStart(r.width, "0")}`);
-      }
-    }
-
-    // Call external activation API (URL from DB settings or env var)
-    const urlSetting = await db.queryOne("SELECT value FROM settings WHERE key = 'external_api_url'");
-    const EXTERNAL_API_URL = urlSetting?.value || process.env.EXTERNAL_API_URL;
+    // Call external activation API
     let externalApiResult: any = null;
-
-    const externalPayload = {
-      SerialBatchNumber: allSerials.join(","),
-    };
+    const externalPayload = { SerialBatchNumber: allSerials.join(",") };
 
     if (EXTERNAL_API_URL) {
       try {
@@ -127,36 +133,20 @@ router.post("/", async (req: Request, res: Response) => {
           body: JSON.stringify(externalPayload),
         });
         const extBody = await extResponse.text();
-        externalApiResult = {
-          status: extResponse.status,
-          success: extResponse.ok,
-          response: extBody,
-        };
+        externalApiResult = { status: extResponse.status, success: extResponse.ok, response: extBody };
       } catch (err2: any) {
-        externalApiResult = {
-          status: 0,
-          success: false,
-          response: err2.message,
-        };
+        externalApiResult = { status: 0, success: false, response: err2.message };
       }
     } else {
-      externalApiResult = {
-        status: 0,
-        success: false,
-        response: "No External API URL configured. Set it in the API Logs page.",
-      };
+      externalApiResult = { status: 0, success: false, response: "No External API URL configured. Set it in the API Logs page." };
     }
 
-    // Mark all serial numbers as activated and batch as activated
-    await db.execute("UPDATE serial_numbers SET status = 'activated', activated_at = NOW() WHERE batch_id = ?", [batchId]);
-    await db.execute("UPDATE batches SET status = 'activated' WHERE id = ?", [batchId]);
-
     // Log external API call
-    await logApiCall(
+    logApiCall(
       db,
       EXTERNAL_API_URL || "/external-api (not configured)",
       "POST",
-      { batchCode, serialCount: allSerials.length, payload: externalPayload },
+      { batchCode, serialCount: allSerials.length },
       externalApiResult,
       externalApiResult.status,
       externalApiResult.success,
@@ -170,7 +160,6 @@ router.post("/", async (req: Request, res: Response) => {
       message: "Batch created successfully",
       batch,
       externalApi: externalApiResult,
-      samplePayloadSent: externalPayload,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

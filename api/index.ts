@@ -207,20 +207,27 @@ async function createBatch(req: VercelRequest, res: VercelResponse) {
 
   const totalQuantity = parsedRanges.reduce((sum, r) => sum + r.quantity, 0);
 
-  // Check for overlapping serial numbers in all ranges
+  // Generate all serial numbers once in memory
+  const allSerials: string[] = [];
   for (const r of parsedRanges) {
-    const firstSerial = `${r.prefix}${String(r.startNum + 1).padStart(r.width, "0")}`;
-    const lastSerial = `${r.prefix}${String(r.endNum).padStart(r.width, "0")}`;
-    const existing = await pool.query(
-      pg("SELECT COUNT(*) as count FROM serial_numbers WHERE serial_number BETWEEN ? AND ?"),
-      [firstSerial, lastSerial]
-    );
-    if (parseInt(existing.rows[0].count) > 0) {
-      return res.status(400).json({ error: `Serial numbers in range ${firstSerial}-${lastSerial} already exist` });
+    for (let i = r.startNum + 1; i <= r.endNum; i++) {
+      allSerials.push(`${r.prefix}${String(i).padStart(r.width, "0")}`);
     }
   }
 
-  // Use first range's prefix/start/end for the batch record summary
+  // Single overlap check across all ranges using ANY
+  const existing = await pool.query(
+    `SELECT serial_number FROM serial_numbers WHERE serial_number = ANY($1) LIMIT 1`,
+    [allSerials]
+  );
+  if (existing.rows.length > 0) {
+    return res.status(400).json({ error: `Serial number ${existing.rows[0].serial_number} already exists` });
+  }
+
+  // Fetch external API URL early (outside transaction)
+  const urlSetting = await pool.query("SELECT value FROM settings WHERE key = 'external_api_url'");
+  const EXTERNAL_API_URL = urlSetting.rows[0]?.value || process.env.EXTERNAL_API_URL;
+
   const firstRange = parsedRanges[0];
   const lastRange = parsedRanges[parsedRanges.length - 1];
 
@@ -228,40 +235,31 @@ async function createBatch(req: VercelRequest, res: VercelResponse) {
   try {
     await client.query("BEGIN");
 
+    // Insert batch directly as activated
     const batchResult = await client.query(
-      pg("INSERT INTO batches (batch_code, sku_id, prefix, start_number, end_number, quantity, production_date, role_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"),
+      `INSERT INTO batches (batch_code, sku_id, prefix, start_number, end_number, quantity, production_date, role_number, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'activated') RETURNING *`,
       [batchCode, skuId, firstRange.prefix, firstRange.startNum, lastRange.endNum, totalQuantity, productionDate, roleNumber || null]
     );
-    const batchId = batchResult.rows[0].id;
+    const batch = batchResult.rows[0];
+    const batchId = batch.id;
 
-    for (const r of parsedRanges) {
-      for (let i = r.startNum + 1; i <= r.endNum; i++) {
-        const serialNumber = `${r.prefix}${String(i).padStart(r.width, "0")}`;
-        await client.query(
-          pg("INSERT INTO serial_numbers (batch_id, serial_number, batch_code, sku_id) VALUES (?, ?, ?, ?)"),
-          [batchId, serialNumber, batchCode, skuId]
-        );
-      }
+    // Bulk insert all serial numbers in chunks using unnest — already activated
+    const CHUNK_SIZE = 5000;
+    for (let c = 0; c < allSerials.length; c += CHUNK_SIZE) {
+      const chunk = allSerials.slice(c, c + CHUNK_SIZE);
+      await client.query(
+        `INSERT INTO serial_numbers (batch_id, serial_number, batch_code, sku_id, status, activated_at)
+         SELECT $1, unnest($2::text[]), $3, $4, 'activated', NOW()`,
+        [batchId, chunk, batchCode, skuId]
+      );
     }
 
     await client.query("COMMIT");
 
-    // Collect all generated serial numbers
-    const allSerials: string[] = [];
-    for (const r of parsedRanges) {
-      for (let i = r.startNum + 1; i <= r.endNum; i++) {
-        allSerials.push(`${r.prefix}${String(i).padStart(r.width, "0")}`);
-      }
-    }
-
-    // Call external activation API (URL from DB settings or env var)
-    const urlSetting = await pool.query("SELECT value FROM settings WHERE key = 'external_api_url'");
-    const EXTERNAL_API_URL = urlSetting.rows[0]?.value || process.env.EXTERNAL_API_URL;
+    // Call external activation API (non-blocking for response)
     let externalApiResult: any = null;
-
-    const externalPayload = {
-      SerialBatchNumber: allSerials.join(","),
-    };
+    const externalPayload = { SerialBatchNumber: allSerials.join(",") };
 
     if (EXTERNAL_API_URL) {
       try {
@@ -271,41 +269,19 @@ async function createBatch(req: VercelRequest, res: VercelResponse) {
           body: JSON.stringify(externalPayload),
         });
         const extBody = await extResponse.text();
-        externalApiResult = {
-          status: extResponse.status,
-          success: extResponse.ok,
-          response: extBody,
-        };
+        externalApiResult = { status: extResponse.status, success: extResponse.ok, response: extBody };
       } catch (err: any) {
-        externalApiResult = {
-          status: 0,
-          success: false,
-          response: err.message,
-        };
+        externalApiResult = { status: 0, success: false, response: err.message };
       }
     } else {
-      externalApiResult = {
-        status: 0,
-        success: false,
-        response: "No External API URL configured. Set it in the API Logs page.",
-      };
+      externalApiResult = { status: 0, success: false, response: "No External API URL configured. Set it in the API Logs page." };
     }
 
-    // Mark all serial numbers as activated and batch as activated
-    await pool.query(
-      pg("UPDATE serial_numbers SET status = 'activated', activated_at = NOW() WHERE batch_id = ?"),
-      [batchId]
-    );
-    await pool.query(
-      pg("UPDATE batches SET status = 'activated' WHERE id = ?"),
-      [batchId]
-    );
-
-    // Log external API call
-    await logApiCall(
+    // Log external API call (fire-and-forget, don't await)
+    logApiCall(
       EXTERNAL_API_URL || "/external-api (not configured)",
       "POST",
-      { batchCode, serialCount: allSerials.length, payload: externalPayload },
+      { batchCode, serialCount: allSerials.length },
       externalApiResult,
       externalApiResult.status,
       externalApiResult.success,
@@ -314,12 +290,10 @@ async function createBatch(req: VercelRequest, res: VercelResponse) {
       allSerials.length
     );
 
-    const batch = await pool.query(pg("SELECT * FROM batches WHERE id = ?"), [batchId]);
     return res.status(201).json({
       message: "Batch created successfully",
-      batch: batch.rows[0],
+      batch,
       externalApi: externalApiResult,
-      samplePayloadSent: externalPayload,
     });
   } catch (e) {
     await client.query("ROLLBACK");
