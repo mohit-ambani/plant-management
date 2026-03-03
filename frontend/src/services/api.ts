@@ -137,3 +137,9 @@ export interface PaginatedLogs {
 
 export const getApiLogs = (page: number = 1, limit: number = 50) =>
   api.get<PaginatedLogs>(`/logs?page=${page}&limit=${limit}`);
+
+export const getSettings = () =>
+  api.get<Record<string, string>>("/settings");
+
+export const updateSetting = (key: string, value: string) =>
+  api.put<{ message: string; key: string; value: string }>("/settings", { key, value });

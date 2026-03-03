@@ -51,6 +51,13 @@ async function init() {
     EXCEPTION WHEN duplicate_column THEN NULL;
     END $$;
   `);
+  // Settings table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
   // API logs table
   await pool.query(`
     CREATE TABLE IF NOT EXISTS api_logs (
@@ -115,6 +122,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // GET /api/logs
     if (path === "/logs" && method === "GET") {
       return await getApiLogs(req, res);
+    }
+
+    // GET /api/settings
+    if (path === "/settings" && method === "GET") {
+      return await getSettings(res);
+    }
+
+    // PUT /api/settings
+    if (path === "/settings" && method === "PUT") {
+      return await updateSettings(req, res);
     }
 
     // GET /api/batches/:id/serials
@@ -237,8 +254,9 @@ async function createBatch(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // Call external activation API
-    const EXTERNAL_API_URL = process.env.EXTERNAL_API_URL;
+    // Call external activation API (URL from DB settings or env var)
+    const urlSetting = await pool.query("SELECT value FROM settings WHERE key = 'external_api_url'");
+    const EXTERNAL_API_URL = urlSetting.rows[0]?.value || process.env.EXTERNAL_API_URL;
     let externalApiResult: any = null;
 
     const externalPayload = {
@@ -269,7 +287,7 @@ async function createBatch(req: VercelRequest, res: VercelResponse) {
       externalApiResult = {
         status: 0,
         success: false,
-        response: "No EXTERNAL_API_URL configured. Set it in environment variables.",
+        response: "No External API URL configured. Set it in the API Logs page.",
       };
     }
 
@@ -618,4 +636,26 @@ async function getApiLogs(req: VercelRequest, res: VercelResponse) {
   const total = parseInt(countResult.rows[0].total);
 
   return res.json({ logs: logs.rows, total, page, limit, totalPages: Math.ceil(total / limit) });
+}
+
+async function getSettings(res: VercelResponse) {
+  const result = await pool.query("SELECT key, value FROM settings");
+  const settings: Record<string, string> = {};
+  for (const row of result.rows) {
+    settings[row.key] = row.value;
+  }
+  return res.json(settings);
+}
+
+async function updateSettings(req: VercelRequest, res: VercelResponse) {
+  const { key, value } = req.body;
+  if (!key) {
+    return res.status(400).json({ error: "Key is required" });
+  }
+  await pool.query(
+    `INSERT INTO settings (key, value) VALUES ($1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = $2`,
+    [key, value || ""]
+  );
+  return res.json({ message: "Setting saved", key, value });
 }

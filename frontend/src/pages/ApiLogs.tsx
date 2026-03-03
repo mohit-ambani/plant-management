@@ -13,6 +13,8 @@ import {
   Modal,
   Typography,
   Descriptions,
+  Input,
+  Alert,
 } from "antd";
 import {
   ApiOutlined,
@@ -21,11 +23,15 @@ import {
   CloseCircleOutlined,
   EyeOutlined,
   ReloadOutlined,
+  SaveOutlined,
+  LinkOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import {
   exportBatches,
   getApiLogs,
+  getSettings,
+  updateSetting,
   ApiLog,
   ExportResponse,
 } from "../services/api";
@@ -42,6 +48,30 @@ export default function ApiLogs() {
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
   const [lastResult, setLastResult] = useState<ExportResponse | null>(null);
   const [detailLog, setDetailLog] = useState<ApiLog | null>(null);
+  const [externalUrl, setExternalUrl] = useState("");
+  const [savedUrl, setSavedUrl] = useState("");
+  const [savingUrl, setSavingUrl] = useState(false);
+
+  useEffect(() => {
+    getSettings().then((res) => {
+      const url = res.data.external_api_url || "";
+      setExternalUrl(url);
+      setSavedUrl(url);
+    }).catch(() => {});
+  }, []);
+
+  const handleSaveUrl = async () => {
+    setSavingUrl(true);
+    try {
+      await updateSetting("external_api_url", externalUrl.trim());
+      setSavedUrl(externalUrl.trim());
+      message.success("External API URL saved");
+    } catch {
+      message.error("Failed to save URL");
+    } finally {
+      setSavingUrl(false);
+    }
+  };
 
   const fetchLogs = useCallback(async (p: number = 1) => {
     setLogsLoading(true);
@@ -176,6 +206,52 @@ export default function ApiLogs() {
 
   return (
     <>
+      <Card
+        title={
+          <Space>
+            <LinkOutlined />
+            <span>External API Configuration</span>
+          </Space>
+        }
+        style={{ marginBottom: 24 }}
+      >
+        <Space.Compact style={{ width: "100%" }}>
+          <Input
+            size="large"
+            placeholder="https://your-other-system.com/api/activate"
+            value={externalUrl}
+            onChange={(e) => setExternalUrl(e.target.value)}
+            prefix={<LinkOutlined />}
+          />
+          <Button
+            type="primary"
+            size="large"
+            icon={<SaveOutlined />}
+            loading={savingUrl}
+            onClick={handleSaveUrl}
+          >
+            Save
+          </Button>
+        </Space.Compact>
+        {savedUrl ? (
+          <Alert
+            style={{ marginTop: 12 }}
+            type="success"
+            showIcon
+            message={<>Active URL: <Text code>{savedUrl}</Text></>}
+            description="This URL will be called with serial numbers whenever a new batch is created."
+          />
+        ) : (
+          <Alert
+            style={{ marginTop: 12 }}
+            type="warning"
+            showIcon
+            message="No external API URL configured"
+            description="Batches will be created but serial numbers won't be sent to any external system."
+          />
+        )}
+      </Card>
+
       <Card
         title={
           <Space>

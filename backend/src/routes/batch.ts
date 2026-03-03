@@ -110,8 +110,9 @@ router.post("/", async (req: Request, res: Response) => {
       }
     }
 
-    // Call external activation API
-    const EXTERNAL_API_URL = process.env.EXTERNAL_API_URL;
+    // Call external activation API (URL from DB settings or env var)
+    const urlSetting = await db.queryOne("SELECT value FROM settings WHERE key = 'external_api_url'");
+    const EXTERNAL_API_URL = urlSetting?.value || process.env.EXTERNAL_API_URL;
     let externalApiResult: any = null;
 
     const externalPayload = {
@@ -142,7 +143,7 @@ router.post("/", async (req: Request, res: Response) => {
       externalApiResult = {
         status: 0,
         success: false,
-        response: "No EXTERNAL_API_URL configured. Set it in environment variables.",
+        response: "No External API URL configured. Set it in the API Logs page.",
       };
     }
 

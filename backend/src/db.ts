@@ -65,6 +65,11 @@ function createSqliteDb() {
           created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_api_logs_created_at ON api_logs(created_at);
+
+        CREATE TABLE IF NOT EXISTS settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
       `);
     },
 
@@ -165,6 +170,11 @@ function createPgDb() {
           created_at TIMESTAMP NOT NULL DEFAULT NOW()
         );
         CREATE INDEX IF NOT EXISTS idx_api_logs_created_at ON api_logs(created_at);
+
+        CREATE TABLE IF NOT EXISTS settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
       `);
     },
 
