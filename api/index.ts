@@ -66,6 +66,13 @@ async function init() {
     EXCEPTION WHEN duplicate_column THEN NULL;
     END $$;
   `);
+  await pool.query(`
+    DO $$ BEGIN
+      ALTER TABLE serial_numbers DROP CONSTRAINT IF EXISTS serial_numbers_serial_number_key;
+    EXCEPTION WHEN undefined_object THEN NULL;
+    END $$;
+  `);
+  await pool.query(`DROP INDEX IF EXISTS serial_numbers_serial_number_key`);
   initialized = true;
 }
 

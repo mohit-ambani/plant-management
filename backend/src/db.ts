@@ -39,7 +39,7 @@ function createSqliteDb() {
         CREATE TABLE IF NOT EXISTS serial_numbers (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           batch_id INTEGER NOT NULL,
-          serial_number TEXT NOT NULL UNIQUE,
+          serial_number TEXT NOT NULL,
           batch_code TEXT NOT NULL,
           sku_id TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'pending',
@@ -142,7 +142,7 @@ function createPgDb() {
         CREATE TABLE IF NOT EXISTS serial_numbers (
           id SERIAL PRIMARY KEY,
           batch_id INTEGER NOT NULL REFERENCES batches(id),
-          serial_number TEXT NOT NULL UNIQUE,
+          serial_number TEXT NOT NULL,
           batch_code TEXT NOT NULL,
           sku_id TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'pending',
