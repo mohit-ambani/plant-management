@@ -73,19 +73,6 @@ router.post("/", async (req: Request, res: Response) => {
     }
   }
 
-  // Overlap check — sample first/last of each range
-  for (const r of parsedRanges) {
-    const firstSerial = `${r.prefix}${String(r.startNum + 1).padStart(r.width, "0")}`;
-    const lastSerial = `${r.prefix}${String(r.endNum).padStart(r.width, "0")}`;
-    const existing = await db.queryOne(
-      "SELECT COUNT(*) as count FROM serial_numbers WHERE serial_number BETWEEN ? AND ?",
-      [firstSerial, lastSerial]
-    );
-    if (existing && existing.count > 0) {
-      res.status(400).json({ error: `Serial numbers in range ${firstSerial}-${lastSerial} already exist` });
-      return;
-    }
-  }
 
   // Fetch external API URL early (outside transaction)
   const urlSetting = await db.queryOne("SELECT value FROM settings WHERE key = 'external_api_url'");

@@ -31,7 +31,7 @@ async function init() {
     CREATE TABLE IF NOT EXISTS serial_numbers (
       id SERIAL PRIMARY KEY,
       batch_id INTEGER NOT NULL REFERENCES batches(id),
-      serial_number TEXT NOT NULL UNIQUE,
+      serial_number TEXT NOT NULL,
       batch_code TEXT NOT NULL,
       sku_id TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
@@ -177,18 +177,6 @@ async function createBatch(req: VercelRequest, res: VercelResponse) {
     }
   }
 
-  // Overlap check: sample first & last of each range using indexed BETWEEN (fast)
-  for (const r of parsedRanges) {
-    const first = `${r.prefix}${String(r.startNum + 1).padStart(r.width, "0")}`;
-    const last = `${r.prefix}${String(r.endNum).padStart(r.width, "0")}`;
-    const dup = await pool.query(
-      `SELECT 1 FROM serial_numbers WHERE serial_number BETWEEN $1 AND $2 LIMIT 1`,
-      [first, last]
-    );
-    if (dup.rows.length > 0) {
-      return res.status(400).json({ error: `Serial numbers in range ${first}-${last} already exist` });
-    }
-  }
 
   // Fetch settings outside transaction
   const urlSetting = await pool.query("SELECT value FROM settings WHERE key = 'external_api_url'");
