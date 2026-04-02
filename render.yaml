@@ -1,8 +1,3 @@
-databases:
-  - name: plant-management-db
-    plan: free
-    databaseName: plant_management
-
 services:
   - type: web
     name: plant-management
@@ -12,8 +7,6 @@ services:
     startCommand: cd backend && node dist/index.js
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: plant-management-db
-          property: connectionString
+        sync: false
       - key: NODE_ENV
         value: production
