@@ -133,6 +133,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (detailMatch && method === "GET") {
       return await getBatchDetail(req, res, parseInt(detailMatch[1]));
     }
+    if (detailMatch && method === "DELETE") {
+      return await deleteBatch(res, parseInt(detailMatch[1]));
+    }
 
     return res.status(404).json({ error: "Not found" });
   } catch (err: any) {
@@ -528,6 +531,18 @@ async function getApiLogs(req: VercelRequest, res: VercelResponse) {
   ]);
 
   return res.json({ logs: logs.rows, total: parseInt(countResult.rows[0].total), page, limit, totalPages: Math.ceil(parseInt(countResult.rows[0].total) / limit) });
+}
+
+// ─── DELETE BATCH ───
+
+async function deleteBatch(res: VercelResponse, id: number) {
+  const batch = await pool.query(`SELECT id FROM batches WHERE id = $1`, [id]);
+  if (batch.rows.length === 0) {
+    return res.status(404).json({ error: "Batch not found" });
+  }
+  await pool.query(`DELETE FROM serial_numbers WHERE batch_id = $1`, [id]);
+  await pool.query(`DELETE FROM batches WHERE id = $1`, [id]);
+  return res.json({ message: "Batch deleted successfully" });
 }
 
 // ─── SETTINGS ───
